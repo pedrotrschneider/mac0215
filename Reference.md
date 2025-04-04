@@ -9,14 +9,14 @@ import "core:fmt"
 
 // Esta linha é um comentário e será ignorada
 /*
-	Blocos de comentários também poderão ser utilizados
-	/*
-		Blocos de comentários podem ser encadeados
-	*/
+    Blocos de comentários também poderão ser utilizados
+    /*
+        Blocos de comentários podem ser encadeados
+    */
 */
 
 main :: proc() {
-	fmt.println("Hello World")
+    fmt.println("Hello World")
 }
 ```
 
@@ -118,7 +118,7 @@ A forma basica da declaração `for` é muito semelhante a outras linguages da f
 
 ```odin
 for i := 0; i < 10; i += 1 {
-	fmt.println(i)
+    fmt.println(i)
 }
 ```
 
@@ -134,8 +134,8 @@ As declarações iniciais e finais não são necessárias.
 ```odin
 i := 0
 for ; i < 10; {
-	fmt.println(i)
-	i += 1
+    fmt.println(i)
+    i += 1
 }
 ```
 
@@ -144,8 +144,8 @@ Nesse caso, os símbolos `;` também podem ser omitidos, transformando o `for` n
 ```odin
 i := 0
 for i < 10 {
-	fmt.println(i)
-	i += 1
+    fmt.println(i)
+    i += 1
 }
 ```
 
@@ -154,10 +154,10 @@ Caso nenhuma declaração seja adicionada após o `for`, ele se torna um laçco 
 ```odin
 i := 0
 for {
-	if i >= 10 do break
-	
-	fmt.println(i)
-	i += 1
+    if i >= 10 do break
+    
+    fmt.println(i)
+    i += 1
 }
 ```
 
@@ -171,7 +171,7 @@ Assim como `for`, os `if`s em Yupii Script não utilizam `()`, mas precisam ter 
 
 ```odin
 if x < 0 {
-	fmt.println("x é menor que zero")
+    fmt.println("x é menor que zero")
 }
 
 if x < 0 do fmt.println("x é menor que zero")
@@ -181,11 +181,11 @@ Assim como o `for`, é possível adicionar uma declaração inicial para um `if`
 
 ```odin
 if x := foo(); x < 0 {
-	fmt.println("x é menor que zero")
+    fmt.println("x é menor que zero")
 } else if x == 0 {
-	fmt.println("x é igual a zero")
+    fmt.println("x é igual a zero")
 } else {
-	fmt.println("x é maior que zero")
+    fmt.println("x é maior que zero")
 }
 ```
 
@@ -201,15 +201,15 @@ Uma expressão iniciada com `defer` será deferida até o final do escopo atual 
 import "core:fmt"
 
 main :: proc() {
-	x := 123
-	defer fmt.println(x)
-	{
-		defer x = 4
-		x = 2
-	}
-	fmt.println(x)
+    x := 123
+    defer fmt.println(x)
+    {
+        defer x = 4
+        x = 2
+    }
+    fmt.println(x)
 
-	x = 234
+    x = 234
 }
 ```
 
@@ -217,13 +217,13 @@ main :: proc() {
 
 ```odin
 {
-	defer {
-		foo()
-		bar()
-	}
-	defer if cond {
-		bar()
-	}
+    defer {
+        foo()
+        bar()
+    }
+    defer if cond {
+        bar()
+    }
 }
 ```
 
@@ -245,20 +245,20 @@ A declaração `break` é utilizada para finalizar prematuramente a execução d
 
 ```odin
 for cond {
-	switch {
-	case:
-		if cond {
-			break // Sairá da declaração `switch`
-		}
-	}
+    switch {
+    case:
+        if cond {
+            break // Sairá da declaração `switch`
+        }
+    }
 
-	break // sairá da declaração `for`
+    break // sairá da declaração `for`
 }
 
 loop: for cond1 {
-	for cond2 {
-		break loop // é possível especificar um rótulo para sair de um escopo específico
-	}
+    for cond2 {
+        break loop // é possível especificar um rótulo para sair de um escopo específico
+    }
 }
 
 exit: {
@@ -275,10 +275,10 @@ Declarações continue podem ser utilizadas para condicinoalmente avançar uma i
 
 ```odin
 for cond {
-	if get_foo() {
-		continue
-	}
-	fmt.println("Hello World")
+    if get_foo() {
+        continue
+    }
+    fmt.println("Hello World")
 }
 ```
 
@@ -292,9 +292,9 @@ Procedimentos em Yupii Script são equivalentes a funções em outras linguagens
 
 ```odin
 fibonacci :: proc(n: int) -> int {
-	if n < 1 do return 0
-	if n == 1 do return 1
-	return fibonacci(n-1) + fibonacci(n-2)
+    if n < 1 do return 0
+    if n == 1 do return 1
+    return fibonacci(n-1) + fibonacci(n-2)
 }
 
 fmt.println(fibonacci(3)) // Irá imprimir `2`
@@ -306,7 +306,7 @@ Em Yupii Script, procedimentos podem ter um ou mais parâmetros.
 
 ```odin
 multiply :: proc(x: int, y: int) -> int {
-	return x * y
+    return x * y
 }
 ```
 
@@ -314,7 +314,7 @@ Em Odin, caso dois ou mais parâmetros consecutivos possuam o mesmo tipo, é pos
 
 ```odin
 multiply :: proc(x, y: int) -> int {
-	return x * y
+    return x * y
 }
 ```
 
@@ -322,11 +322,11 @@ Assim como em `C/C++`, todos os parâmetros são passados por valor ao invés de
 
 ```odin
 foo :: proc(x: int) {
-	x := x // mutabilidade explícita
-	for x > 0 {
-		fmt.println(x)
-		x -= 1
-	}
+    x := x // mutabilidade explícita
+    for x > 0 {
+        fmt.println(x)
+        x -= 1
+    }
 }
 ```
 
@@ -338,7 +338,7 @@ Procedimentos podem retornar múltiplos valores.
 
 ```odin
 swap :: proc(x, y: int) -> (int, int) {
-	return y, x
+    return y, x
 }
 a, b := swap(1, 2)
 fmt.println(a, b) // 2 1
@@ -350,9 +350,9 @@ Os resultados de um procedimento podem ser nomeados na assinatura do procediment
 
 ```odin
 do_math :: proc(input: int) -> (x: int, y: int) {
-	x = 2 * input + 1
-	y = 3 * input / 5
-	return x, y
+    x = 2 * input + 1
+    y = 3 * input / 5
+    return x, y
 }
 ```
 
@@ -360,9 +360,9 @@ Caso todos os resultados sejam nomeados, é possível chamar `return` vazio. Nes
 
 ```odin
 do_math_with_naked_return :: proc(input: int) -> (x, y: int) {
-	x = 2 * input + 1
-	y = 3 * input / 5
-	return
+    x = 2 * input + 1
+    y = 3 * input / 5
+    return
 }
 ```
 
@@ -373,7 +373,7 @@ Na chamada de um procedimento, é possível utilizar argumentos posicionais ou a
 
 ```odin
 sum :: proc(a, b, c, d, e, f: int) -> int {
-	return a + b + c + d + e + f
+    return a + b + c + d + e + f
 }
 
 sum(1, 2, 3, 4, 5, 6) // Chamada válida utilizando argumentos posicionais
@@ -389,7 +389,7 @@ A declaração de um procedimento pode incluir valores padrão para os argumento
 
 ```odin
 sum :: proc(a, b := 0, c := 0, d := 0, e := 0, f := 0) -> int {
-	return a + b + c + d + e + f
+    return a + b + c + d + e + f
 }
 
 sum(10, 20) // Chamada válida pois todos os arguemntos subsequentes possuem valores padrão
@@ -405,11 +405,11 @@ Em Yupii Script, procedimentos podem ser encadeados dentro de outros procediment
 import "core:fmt"
 
 main :: proc() {
-	say_hello :: proc() {
-		fmt.println("Hello World")
-	}
+    say_hello :: proc() {
+        fmt.println("Hello World")
+    }
 
-	say_hello()
+    say_hello()
 }
 ```
 
@@ -514,41 +514,41 @@ O operador transmute não está no escopo atual do projeto.
 Os seguintes são operadores unários.
 
 - `+`
-	- `+x` é equivalente a `0 + x`
+    - `+x` é equivalente a `0 + x`
 - `-`: negação
-	- `-x` é equivalente a `0 - x`
+    - `-x` é equivalente a `0 - x`
 - `~`: complemento binário
-	- `~x` é equivalente a `m ~ x` onde `m` é um valor de mesmo número de bits que `x` com todos os bits setados para `1`
+    - `~x` é equivalente a `m ~ x` onde `m` é um valor de mesmo número de bits que `x` com todos os bits setados para `1`
 
 Os seguintes são operadors binários aritméticos.
 
 - `+`: soma
-	- Tipos suportados: inteiros, enums, floats, complexos, arrays de tipos numéricos, matrizes e strings constantes
+    - Tipos suportados: inteiros, enums, floats, complexos, arrays de tipos numéricos, matrizes e strings constantes
 - `-`: subtração
-	- Tipos suportados: inteiros, enums, floats, complexos, arrays de tipos numéricos e matrizes
+    - Tipos suportados: inteiros, enums, floats, complexos, arrays de tipos numéricos e matrizes
 - `*`: multiplicação
-	- Tipos suportados: inteiros, floats, complexos, arrays de tipos numéricos e matrizes
+    - Tipos suportados: inteiros, floats, complexos, arrays de tipos numéricos e matrizes
 - `/`: divisão
-	- Tipos suportados: inteiros, floats, complexos e arrays de tipos numéricos
+    - Tipos suportados: inteiros, floats, complexos e arrays de tipos numéricos
 - `%`: módulo (truncado)
-	- Tipos suportados: inteiros
+    - Tipos suportados: inteiros
 - `%%`: resto (arredondado para baixo)
-	- Tipos suportados: inteiros
+    - Tipos suportados: inteiros
 
 Os seguintes são operadores binários lógicos por bit.
 
 - `|`: `or` por bit
-	- Tipos suportados: inteiros, enums
+    - Tipos suportados: inteiros, enums
 - `~`: `xor` por bit
-	- Tipos suportados: inteiros, enums
+    - Tipos suportados: inteiros, enums
 - `&`: `and` por bit
-	- Tipos suportados: inteiros, enums
+    - Tipos suportados: inteiros, enums
 - `&~`: `and-not` por bit
-	- Tipos suportados: inteiros, enums
+    - Tipos suportados: inteiros, enums
 - `<<`: bit-shift para a esquerda
-	- Tipos suportados: inteiro << (inteiro >= 0)
+    - Tipos suportados: inteiro << (inteiro >= 0)
 - `<<`: bit-shift para a direita
-	- Tipos suportados: inteiro >> (inteiro >= 0)
+    - Tipos suportados: inteiro >> (inteiro >= 0)
 
 ### Operadores de comparação
 
@@ -586,9 +586,9 @@ Os operadores `==` e `!=` podem ser aplicados em operandos que sejam **comparáv
 Operadores lógicos podem ser aplicados a valores booleanos. O operando da direita é avaliado condicionalmente (`short-circuting`).
 
 - `&&`: `and` condicional
-	- `a && b` é quivalente a `b if a else false`
+    - `a && b` é quivalente a `b if a else false`
 - `||`: `or` condicional
-	- `a || b` é quivalente a `true if a else b`
+    - `a || b` é quivalente a `true if a else b`
 - `!`: negação
 
 ### Operadores compostos de atribuição
@@ -596,36 +596,36 @@ Operadores lógicos podem ser aplicados a valores booleanos. O operando da direi
 Os seguintes são operadores aritméticos compostos de atribuição:
 
 - `+=`: soma e atribuição
-	- `a += b` é equivalente a `a = a + b`
+    - `a += b` é equivalente a `a = a + b`
 - `-=`: subtração e atribuição
-	- `a -= b` é equivalente a `a = a - b`
+    - `a -= b` é equivalente a `a = a - b`
 - `*=`: multiplicação e atribuição
-	- `a *= b` é equivalente a `a = a * b`
+    - `a *= b` é equivalente a `a = a * b`
 - `/=`: divisão e atribuição
-	- `a /= b` é equivalente a `a = a / b`
+    - `a /= b` é equivalente a `a = a / b`
 - `%=`: módulo (truncado) e atribuição
-	- `a %= b` é equivalente a `a = a % b`
+    - `a %= b` é equivalente a `a = a % b`
 - `%%=`: resto (arredondado para baixo) e atribuição
-	- `a %%= b` é equivalente a `a = a %% b`
+    - `a %%= b` é equivalente a `a = a %% b`
 
 Os seguintes são operadores lógicos por bit compostos de atribuição:
 
 - `|=`: `or` por bit e atribuição
-	- `a |= b` é equivalente a `a = a | b`
+    - `a |= b` é equivalente a `a = a | b`
 - `~=`: `xor` por bit e atribuição
-	- `a ~= b` é equivalente a `a = a ~ b`
+    - `a ~= b` é equivalente a `a = a ~ b`
 - `&=`: `and` por bit e atribuição
-	- `a &= b` é equivalente a `a = a & b`
+    - `a &= b` é equivalente a `a = a & b`
 - `&~=`: `and-not` por bit e atribuição
-	- `a &~= b` é equivalente a `a = a &~ b`
+    - `a &~= b` é equivalente a `a = a &~ b`
 - `<<=`: bit-shift para a esquerda e atribuição
-	- `a <<= b` é equivalente a `a = a << b`
+    - `a <<= b` é equivalente a `a = a << b`
 - `>>=`: bit-shift para a direita e atribuição
-	- `a >>= b` é equivalente a `a = a >> b`
+    - `a >>= b` é equivalente a `a = a >> b`
 
 Os seguintes são operadores lógicos condicionais compostos de atribuição:
 
 - `&&=`: `and` lógico e atribuição
-	- `a &&= b` é equivalente a `a = a && b`
+    - `a &&= b` é equivalente a `a = a && b`
 - `||=`: `or` lógico e atribuição
-	- `a ||= b` é equivalente a `a = a || b`
+    - `a ||= b` é equivalente a `a = a || b`
