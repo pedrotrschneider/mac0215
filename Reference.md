@@ -507,6 +507,146 @@ u := cast(u32)f
 
 O operador transmute não está no escopo atual do projeto.
 
+## Tipos avançados de dados
+
+### Apelidos de tipos
+
+É possível criar apelidos para tipos já existentes. No exemplo acima, o tipo `My_Int` poderá ser utilizado em qualquer lugar q o tipo `int` também poderia ser utilizado. Eles são efeitvamente o mesmo tipo. 
+
+```odin
+My_Int :: int
+#assert(My_Int == int)
+```
+
+### Tipos distintos
+
+Caso seja necessário criar um tipo estruturalmente igual a outro, mas que seja considerado como um tipo distinto, é possível utillizar a palavra chave `distinct`.
+
+```odin
+My_Int :: distinct int
+#assert(My_Int != int)
+```
+
+Tipos agregados (structs, enums e uniões) sempre serão distintos quando nomeados.
+
+```odin
+Foo :: struct {}
+#assert(Foo != struct {})
+```
+
+### Arrays de tamanho fixo
+
+Arrays de tamanho fixo são suportados nativamente pela biblioteca padrão de Yupii Script. O índice pode ser qualquer tipo inteiro, caractere ou enum.
+
+```odin
+x := [5]int{1, 2, 3, 4, 5}
+for i := 0; i < 5; i++ {
+    fmt.println(x[i])
+}
+```
+
+O operador de índice `x[i]` é utilizado para acessar o i-ésimo elemento do array. Arrays em Yupii Script são indexados por 0, assim como em `C/C++`.
+
+O array acima também pode ser construído sem especificar o tamanho explicitamente. Isso não significa que o array terá um tamanho dinâmico. Significa apenas que ele irá inferir o tamanho baseado em como ele for inicializado.
+
+```odin
+x := [?]int{1, 2, 3, 4, 5}
+```
+
+Arrays com inicializadores designados estão fora de escopo para o projeto atualmente.
+
+O prodecimento embutido `len()` pode ser utlizado para consultar o tamanho de um array.
+
+```odin
+x: [5]int
+#assert(len(x) == 5)
+```
+
+Operações de indexação em arrays tem os limites conferidos por padrão (para evitar acessos a endereços inválidos para o Array). A funcionalidade de especificar que os limites não devem ser checados está fora de escopo para o projeto atualmente.
+
+#### Programação de arrays
+
+Programação de arrays está fora de escopo para o projeto atualmente
+
+### Fatias
+
+Fatias são muito similares a arrays fixos, com a diferença de que seu tamanho é conhecido apenas em tempo de execução. O tipo `[]T` é uma fatia com elementos do tipo `T`. Uma fatia pode ser adquirida apartir de um array especificando índices de início e de fim. Ela passa a funcionar como uma "janela" para o array original.
+
+```odin
+a[low : high]
+```
+
+Essa sintaxe é equivalente a um intervalo `[low, high)`, ou seja, inclui o valor no índice `low` e não inclui o valor no índice `high`.
+
+```odin
+fibonaccis := [6]int{0, 1, 2, 3, 5}
+s: []int = fibonaccis[1:4] // Cria uma fatia do array `fibonaccis` contendo os elementos de índices 1, 2 e 3
+fmt.println(s) // 1, 1, 2
+```
+
+Como fatias são apenas referências a arrays, elas não guaradam dados por si só. Isso significa que se o array original for modificado, a fatia também será modificada, e, caso a fatia seja modificada, o array original também será modificado.
+
+O procedimento `len()` pode ser utilizado com fatias da mesma forma que é utilizado com arrays.
+
+```odin
+fibonaccis := [6]int{0, 1, 2, 3, 5}
+s: []int = fibonaccis[1:4]
+#assert(len(fibonaccis) == 6)
+#assert(len(s) == 3)
+```
+
+#### Literais de fatias
+
+Um literal de fatia é semelhante a um literal de array, mas o tamanho não é especificado.
+
+```odin
+[]int{1, 6, 3}
+```
+
+Isso cria um array de tamanho fixo 3 internamente e retorna uma fatia para o array inteiro.
+
+#### Atalhos para fatias
+
+Para o array
+
+```odin
+a: [6]int
+```
+
+As seguintes expressões de fatia são equivalentes
+
+```odin
+a[0:6]
+a[:6]
+a[0:]
+a[:]
+```
+
+#### Fatias `nil`
+
+O valor zero para fatias é `nil`. Uma fatia `nil` tem tamanho 0 e não aponta para nenhuma memória alocada. Fatias são comparáveis apenas com `nil`.
+
+```odin
+s: []int
+if s == nil do fmt.println("s é nil")
+```
+### Arrays dinâmicos
+
+Arrays dinâmicos estão fora de escopo para o projeto
+
+### Enumeradores
+
+Enumeradores definem um tipo cujos valores estão restritos aos valores que foram especificados. Os valores são ordenados. Por exemplo:
+
+```odin
+Direction :: enum {North, East, South, West}
+#assert(int(Direction.North) == 0)
+#assert(int(Direction.East)  == 1)
+#assert(int(Direction.South) == 2)
+#assert(int(Direction.West)  == 3)
+```
+
+
 ## Operadores
 
 ### Operadores aritiméticos
@@ -629,3 +769,7 @@ Os seguintes são operadores lógicos condicionais compostos de atribuição:
     - `a &&= b` é equivalente a `a = a && b`
 - `||=`: `or` lógico e atribuição
     - `a ||= b` é equivalente a `a = a || b`
+
+### Operador de endereço
+
+Para um operando `x` do tipo `T`, o operador de endereço `&x` retorna um ponteiro do tipo `^T` para `x`. O operando deve ser um valor referenciável
