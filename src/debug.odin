@@ -8,10 +8,17 @@ EXECUTE_TEST_CASE :: #config(EXECUTE_TEST_CASE, false)
 
 OP_NAME := [OpCode]string {
     .Constant = "OP_CONSTANT",
+    .Nil = "OP_NIL",
+    .True = "OP_TRUE",
+    .False = "OP_FALSE",
+    .Equal = "OP_EQUAL",
+    .Greater = "OP_GREATER",
+    .Less = "OP_LESS",
     .Add = "OP_ADD",
     .Subtract = "OP_SUBTRACT",
     .Multiply = "OP_MULTIPLY",
     .Divide = "OP_DIVIDE",
+    .Not = "OP_NOT",
     .Negate = "OP_NEGATE",
     .Return = "OP_RETURN",
 }
@@ -26,9 +33,8 @@ DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
 
     op := OpCode(chunk.code[offset])
     switch op {
-    case .Constant:
-        return ConstantInstruction(op, chunk, offset)
-    case .Add, .Subtract, .Multiply, .Divide, .Negate, .Return:
+    case .Constant: return ConstantInstruction(op, chunk, offset)
+    case .Nil, .True, .False, .Equal, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Return:
         return SimpleInstruction(op, offset)
     case:
         fmt.println("[ERROR] Unknown opcode:", int(op))

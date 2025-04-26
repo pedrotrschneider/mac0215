@@ -59,7 +59,8 @@ Scanner_SkipWhitespace :: proc(this: ^Scanner) {
 }
 
 Scanner_CheckKeyword :: proc(this: ^Scanner, start: int, keyword: []rune, type: TokenType) -> TokenType {
-    if slice.equal(this.source[this.current + start:this.current + len(keyword)], keyword) do return type
+    if len(this.source) < this.start + start + len(keyword) do return .Identifier
+    if slice.equal(this.source[this.start + start:this.start + start + len(keyword)], keyword) do return type
     return .Identifier
 }
 
@@ -122,8 +123,8 @@ Scanner_GetIdentifierType :: proc(this: ^Scanner) -> TokenType {
         case 'r': return Scanner_CheckKeyword(this, 2, { 'u', 'e' }, .True)
         }
     }
-    case 'v': return Scanner_CheckKeyword(this, 1, { 'v', 'a', 'r' }, .Var)
-    case 'w': return Scanner_CheckKeyword(this, 1, { 'w', 'h', 'i', 'l', 'e' }, .While)
+    case 'v': return Scanner_CheckKeyword(this, 1, { 'a', 'r' }, .Var)
+    case 'w': return Scanner_CheckKeyword(this, 1, { 'h', 'i', 'l', 'e' }, .While)
     }
 
     return .Identifier
@@ -158,7 +159,7 @@ Scanner_ScanToken :: proc(this: ^Scanner) -> Token {
     case '>': return Token_Create(this, Scanner_Match(this, '=') ? .GreaterEqual : .Greater)
     case '"': return Scanner_ConsumeStringLiteral(this)
     case '0' ..= '9': return Scanner_ConsumeNumber(this)
-    case 'a' ..= 'z', 'A' ..= 'Z', '_':
+    case 'a' ..= 'z', 'A' ..= 'Z', '_': return Scanner_ConsumeIdentifier(this)
     }
 
     return Token_CreateError(this, "Unexpected character")

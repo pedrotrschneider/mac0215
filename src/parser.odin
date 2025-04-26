@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import utf8 "core:unicode/utf8"
 
 Parser :: struct {
     current, previous: Token,
@@ -20,7 +21,7 @@ Parser_ErrorAt :: proc(this: ^Parser, token: ^Token, message: string) {
 
     if token.type == .EOF do fmt.fprint(os.stderr, " at end")
     else if token.type == .Error do fmt.print()
-    else do fmt.fprint(os.stderr, " at", token.source[token.start:token.start + token.length])
+    else do fmt.fprintf(os.stderr, " at \"%s\"", utf8.runes_to_string(token.source[token.start:token.start + token.length]))
 
     fmt.fprintln(os.stderr, ":", message)
     this.had_error = true

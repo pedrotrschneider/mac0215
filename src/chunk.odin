@@ -4,10 +4,17 @@ import "core:fmt"
 
 OpCode :: enum {
     Constant,
+    Nil,
+    True,
+    False,
+    Equal,
+    Greater,
+    Less,
     Add,
     Subtract,
     Multiply,
     Divide,
+    Not,
     Negate,
     Return,
 }
@@ -31,6 +38,7 @@ Chunk_Free :: proc(this: ^Chunk) {
 }
 
 Chunk_AddConstant :: proc(this: ^Chunk, value: Value) -> int {
+    resize(&this.constants, len(this.constants) + 1)
     append(&this.constants, value)
     return len(this.constants) - 1
 }

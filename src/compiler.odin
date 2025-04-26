@@ -57,13 +57,13 @@ Compiler_Consume :: proc(this: ^Compiler, type: TokenType, message: string) {
 @(private="file")
 Compiler_ParsePrecedence :: proc(this: ^Compiler, precedence: Precedence) {
     Compiler_Advance(this)
-    prefix_rule := Compiler_GetRule(this.parser.previous.type).prefix
-    if prefix_rule == nil {
+    prefixRule := Compiler_GetRule(this.parser.previous.type).prefix
+    if prefixRule == nil {
         Parser_Error(&this.parser, "Expected expression")
         return
     }
 
-    prefix_rule(this)
+    prefixRule(this)
 
     for precedence <= Compiler_GetRule(this.parser.current.type).precedence {
         Compiler_Advance(this)
@@ -135,31 +135,31 @@ rules : [TokenType]ParseRule = {
     .Semicolon = { nil, nil, .None },
     .Slash = { nil, Compiler_CompileBinary, .Factor },
     .Star = { nil, Compiler_CompileBinary, .Factor },
-    .Bang = { nil, nil, .None },
-    .BangEqual = { nil, nil, .None },
+    .Bang = { Compiler_CompileUnary, nil, .None },
+    .BangEqual = { nil, Compiler_CompileBinary, .Equality },
     .Equal = { nil, nil, .None },
-    .EqualEqual = { nil, nil, .None },
-    .Greater = { nil, nil, .None },
-    .GreaterEqual = { nil, nil, .None },
-    .Less = { nil, nil, .None },
-    .LessEqual = { nil, nil, .None },
+    .EqualEqual = { nil, Compiler_CompileBinary, .Equality },
+    .Greater = { nil, Compiler_CompileBinary, .Comparison },
+    .GreaterEqual = { nil, Compiler_CompileBinary, .Comparison },
+    .Less = { nil, Compiler_CompileBinary, .Comparison },
+    .LessEqual = { nil, Compiler_CompileBinary, .Comparison },
     .Identifier = { nil, nil, .None },
-    .String = { nil, nil, .None },
+    .String = { Compiler_CompileString, nil, .None },
     .Number = { Compiler_CompileNumber, nil, .None },
     .And = { nil, nil, .None },
     .Class = { nil, nil, .None },
     .Else = { nil, nil, .None },
-    .False = { nil, nil, .None },
+    .False = { Compiler_CompileLiteral, nil, .None },
     .For = { nil, nil, .None },
     .Fun = { nil, nil, .None },
     .If = { nil, nil, .None },
-    .Nil = { nil, nil, .None },
+    .Nil = { Compiler_CompileLiteral, nil, .None },
     .Or = { nil, nil, .None },
     .Print = { nil, nil, .None },
     .Return = { nil, nil, .None },
     .Super = { nil, nil, .None },
     .This = { nil, nil, .None },
-    .True = { nil, nil, .None },
+    .True = { Compiler_CompileLiteral, nil, .None },
     .Var = { nil, nil, .None },
     .While = { nil, nil, .None },
     .Error = { nil, nil, .None },
@@ -184,8 +184,17 @@ Compiler_CompileNumber :: proc(this: ^Compiler) {
         fmt.fprintln(os.stderr, "[ERROR] Unable to convert", number_str, "to number")
         panic("Exiting...")
     }
-    value := Value(number)
+    value := Value_Number(number)
     Compiler_EmitConstant(this, Compiler_MakeConstant(this, value))
+}
+
+@(private="file")
+Compiler_CompileString :: proc(this: ^Compiler) {
+    start := this.parser.previous.start + 1
+    end := start + this.parser.previous.length - 2
+    stringObj := Obj_CopyRunesToObjString(this.parser.previous.source[start:end])
+    constant := Compiler_MakeConstant(this, Value_Obj(stringObj))
+    Compiler_EmitConstant(this, constant)
 }
 
 @(private="file")
@@ -202,6 +211,7 @@ Compiler_CompileUnary :: proc(this: ^Compiler) {
     Compiler_ParsePrecedence(this, .Unary)
 
     #partial switch operator_type {
+    case .Bang: Compiler_EmitOp(this, .Not)
     case .Minus: Compiler_EmitOp(this, .Negate)
     case: fmt.fprintln(os.stderr, "[ERROR]", operator_type, "is not a unary operator"); panic("Exiting...")
     }
@@ -214,11 +224,27 @@ Compiler_CompileBinary :: proc(this: ^Compiler) {
     Compiler_ParsePrecedence(this, Precedence(int(rule.precedence) + 1))
 
     #partial switch operator_type {
+    case .BangEqual: Compiler_EmitOps(this, .Equal, .Not)
+    case .EqualEqual: Compiler_EmitOp(this, .Equal)
+    case .Greater: Compiler_EmitOp(this, .Greater)
+    case .GreaterEqual: Compiler_EmitOps(this, .Less, .Not)
+    case .Less: Compiler_EmitOp(this, .Less)
+    case .LessEqual: Compiler_EmitOps(this, .Greater, .Not)
     case .Plus: Compiler_EmitOp(this, .Add)
     case .Minus: Compiler_EmitOp(this, .Subtract)
     case .Star: Compiler_EmitOp(this, .Multiply)
     case .Slash: Compiler_EmitOp(this, .Divide)
     case: fmt.fprintln(os.stderr, "[ERROR]", operator_type, "is not a binary operator"); panic("Exiting...")
+    }
+}
+
+@(private="file")
+Compiler_CompileLiteral :: proc(this: ^Compiler) {
+    #partial switch this.parser.previous.type {
+    case .False: Compiler_EmitOp(this, .False)
+    case .True: Compiler_EmitOp(this, .True)
+    case .Nil: Compiler_EmitOp(this, .Nil)
+    case: return
     }
 }
 
@@ -237,6 +263,13 @@ Compiler_EmitByte :: proc(this: ^Compiler, byte: u8) {
 @(private="file")
 Compiler_EmitOp :: proc(this: ^Compiler, op: OpCode) {
     Chunk_WriteOp(Compiler_CurrentChunk(this), op, this.parser.previous.line)
+}
+
+@(private="file")
+Compiler_EmitOps :: proc(this: ^Compiler, ops: ..OpCode) {
+    for op in ops {
+        Compiler_EmitOp(this, op)
+    }
 }
 
 @(private="file")
