@@ -8,23 +8,29 @@ define_print = -define:DEBUG_PRINT_CODE=true
 define_test_case = -define:EXECUTE_TEST_CASE=true
 
 run: build
-	./bin/main
+	@./bin/main
+
+run_file: build
+	@./bin/main test.yp
 
 debug: build_debug
-	./bin/main-debug
+	@./bin/main-debug
+
+debug_file: build_debug
+	@./bin/main-debug test.yp
 
 test: build_test
-	./bin/main-debug
+	@./bin/main-debug
 
 run_keyword_rune_generator:
-	$(run) tools/keyword-rune-generator/main.odin -file $(arguments) < tools/keyword-rune-generator/keywords.txt
+	@$(run) tools/keyword-rune-generator/main.odin -file $(arguments) < tools/keyword-rune-generator/keywords.txt
 
 build:
-	$(compile) src $(arguments) -out=bin/main
+	@$(compile) src $(arguments) -out=bin/main
 
 build_debug:
-	$(compile) src $(arguments) -out=bin/main-debug $(define_trace) $(define_print) -o:none -debug
+	@$(compile) src $(arguments) -out=bin/main-debug $(define_trace) $(define_print) -o:none -debug
 
 build_test:
-	$(compile) src $(arguments) -out=bin/main-debug $(define_trace) $(define_print) $(define_test_case) -o:none -debug
+	@$(compile) src $(arguments) -out=bin/main-debug $(define_trace) $(define_print) $(define_test_case) -o:none -debug
 

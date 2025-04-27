@@ -2,11 +2,17 @@ package yupii
 
 import "core:fmt"
 import "core:os"
+import "core:mem"
+import vmem "core:mem/virtual"
 
 VM :: struct {
     chunk: ^Chunk,
     ip: int, // instruction pointer
     stack: [dynamic]Value,
+    globals: map[string]Value,
+
+    vmArena: vmem.Arena,
+    vmAllocator: mem.Allocator,
 }
 
 VMInterpretResult :: enum {
@@ -16,11 +22,16 @@ VMInterpretResult :: enum {
 }
 
 VM_Init :: proc(this: ^VM) {
-    this.stack = make([dynamic]Value)
+    vmArenaOk: bool
+    this.vmAllocator, vmArenaOk = InitGrowingArenaAllocator(&this.vmArena)
+    if !vmArenaOk do panic("Unable to initialize vm's arena")
+
+    this.stack = make([dynamic]Value, this.vmAllocator)
+    this.globals = make(map[string]Value, this.vmAllocator)
 }
 
 VM_Free :: proc(this: ^VM) {
-    delete(this.stack)
+    vmem.arena_destroy(&this.vmArena)
 }
 
 VM_StackPush :: proc(this: ^VM, value: Value) {
@@ -47,6 +58,10 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
 
     ReadConstant :: proc(this: ^VM) -> Value {
         return Chunk_GetConstantValue(this.chunk, ReadByte(this))
+    }
+
+    ReadString :: proc(this: ^VM) -> ^String {
+        return Value_AsString(ReadConstant(this))
     }
 
     BinaryOp :: proc(this: ^VM, op: OpCode) {
@@ -84,13 +99,36 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             Debug_DisassembleInstruction(this.chunk, this.ip)
         }
 
-
         op := ReadOp(this)
         switch op {
         case .Constant: VM_StackPush(this, ReadConstant(this))
-//        case .Nil: VM_StackPush(this, Value_Nil())
+        case .Nil: {} //VM_StackPush(this, Value_Nil())
         case .True: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, true)))
         case .False: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, false)))
+        case .Pop: VM_StackPop(this)
+        case .GetGlobal: {
+            globalName := ReadString(this)
+            globalValue, ok := this.globals[globalName.value]
+            if !ok {
+                VM_RuntimeError(this, "Undefined variable %s", globalName.value)
+                return .RuntimeError
+            }
+            VM_StackPush(this, globalValue)
+        }
+        case .DefineGlobal: {
+            globalName := ReadString(this)
+            this.globals[globalName.value] = VM_StackPeek(this, 0)
+            VM_StackPop(this)
+        }
+        case .SetGlobal: {
+            globalName := ReadString(this)
+            _, ok := this.globals[globalName.value]
+            if !ok {
+                VM_RuntimeError(this, "Undefined variable %s", globalName.value)
+                return .RuntimeError
+            }
+            this.globals[globalName.value] = VM_StackPeek(this, 0)
+        }
         case .Equal: {
             b := VM_StackPop(this)
             a := VM_StackPop(this)
@@ -98,18 +136,6 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             VM_StackPush(this, Value_Bool(value))
         }
         case .Greater, .Less, .Add, .Subtract, .Multiply, .Divide: BinaryOp(this, op)
-//        case .Add: {
-//            if Value_IsString(VM_StackPeek(this, 0)) && Value_IsString(VM_StackPeek(this, 0)) {
-//                VM_ConcatenateObjStrings(this)
-//            } else if Value_IsNumber(VM_StackPeek(this, 0)) && Value_IsNumber(VM_StackPeek(this, 0)) {
-//                b := Value_AsNumber(VM_StackPop(this))
-//                a := Value_AsNumber(VM_StackPop(this))
-//                VM_StackPush(this, Value_Number(a + b))
-//            } else {
-//                VM_RuntimeError(this, "Operands must be two number os two strings")
-//                return .RuntimeError
-//            }
-//        }
         case .Not: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, Value_IsFalsey(VM_StackPop(this)))))
         case .Negate: {
             number, ok := Value_TryAsF64(VM_StackPeek(this, 0))
@@ -120,14 +146,9 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, -number.value)))
             VM_StackPop(this)
         }
-        case .Return: {
-            Value_Print(VM_StackPop(this))
-            fmt.println()
-            fmt.println()
-            return .Ok
-        }
-        case:
-            return .CompileError
+        case .Print: Value_Println(VM_StackPop(this))
+        case .Return: return .Ok
+        case: return .CompileError
         }
     }
 
@@ -170,8 +191,9 @@ VM_REPL :: proc(this: ^VM) {
 }
 
 VM_RunFile :: proc(this: ^VM, file: string) {
-    source, err := os.read_entire_file(file)
-    if err {
+    fmt.println("Executing file", file)
+    source, ok := os.read_entire_file_from_filename(file, this.vmAllocator)
+    if !ok {
         fmt.fprintln(os.stderr, "[ERROR] Failed to read source file", file)
         os.exit(74)
     }
@@ -189,16 +211,3 @@ VM_RuntimeError :: proc(this: ^VM, format: string, vargs: ..string) {
     line := this.chunk.lines[this.ip]
     fmt.fprintfln(os.stderr, "[line %d] in script", line)
 }
-
-// Warning: This procedure assumes the top two values on the stack are `ObjString`s
-//VM_ConcatenateObjStrings :: proc(this: ^VM) {
-//    b := Value_AsString(VM_StackPop(this))
-//    a := Value_AsString(VM_StackPop(this))
-//
-//    newLength := len(a.runes) + len(b.runes)
-//    newRunes := make([]rune, newLength)
-//    copy(newRunes[:len(a.runes)], a.runes)
-//    copy(newRunes[len(a.runes):], b.runes)
-//    result := Obj_TakeRunesToObjString(newRunes)
-//    VM_StackPush(this, Value_Obj(result))
-//}

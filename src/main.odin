@@ -19,9 +19,9 @@ testagain :: proc() -> ^int {
 
 @(private="file")
 test :: proc() {
-    value := testagain()
-    fmt.println(value^)
-    free(value)
+    dir := os.get_current_directory()
+    fmt.println(dir)
+    delete(dir)
 }
 
 @(private="file")

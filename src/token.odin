@@ -20,7 +20,7 @@ TokenType :: enum {
     If, Else, For, Defer,
     True, False, Nil,
     And, Or, Print,
-    Proc, Struct, Distinct,
+    Var, Proc, Struct, Distinct,
     Return,
 
     Error, EOF,

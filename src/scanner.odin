@@ -7,7 +7,7 @@ Keyword :: enum {
     If, Else, For, Defer,
     True, False, Nil,
     And, Or, Print,
-    Proc, Struct, Distinct,
+    Var, Proc, Struct, Distinct,
     Return,
 }
 
@@ -27,6 +27,7 @@ keywords : [Keyword]KeywordData = {
     .And = { .And, { 'a', 'n', 'd' } },
     .Or = { .Or, { 'o', 'r' } },
     .Print = { .Print, { 'p', 'r', 'i', 'n', 't' } },
+    .Var = { .Var, { 'v', 'a', 'r' } },
     .Proc = { .Proc, { 'p', 'r', 'o', 'c' } },
     .Struct = { .Struct, { 's', 't', 'r', 'u', 'c', 't' } },
     .Distinct = { .Distinct, { 'd', 'i', 's', 't', 'i', 'n', 'c', 't' } },
@@ -172,10 +173,22 @@ Scanner_GetIdentifierType :: proc(this: ^Scanner) -> TokenType {
     case 'i': return Scanner_CheckKeyword(this, 1, .If)
     case 'n': return Scanner_CheckKeyword(this, 1, .Nil)
     case 'o': return Scanner_CheckKeyword(this, 1, .Or)
-    case 'p': return Scanner_CheckKeyword(this, 1, .Proc)
+    case 'p': {
+        if this.current - this.start < 1 do break
+        switch this.source[this.start + 1] {
+        case 'r': {
+            if this.current - this.start < 2 do break
+            switch this.source[this.start + 2] {
+            case 'i': return Scanner_CheckKeyword(this, 3, .Print)
+            case 'o': return Scanner_CheckKeyword(this, 3, .Proc)
+            }
+        }
+        }
+    }
     case 'r': return Scanner_CheckKeyword(this, 1, .Return)
     case 's': return Scanner_CheckKeyword(this, 1, .Struct)
     case 't': return Scanner_CheckKeyword(this, 1, .True)
+    case 'v': return Scanner_CheckKeyword(this, 1, .Var)
     }
     return .Identifier
 }

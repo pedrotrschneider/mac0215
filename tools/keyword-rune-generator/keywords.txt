@@ -8,6 +8,7 @@ nil
 and
 or
 print
+var
 proc
 struct
 distinct

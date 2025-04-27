@@ -21,8 +21,13 @@ Compiler_Compile :: proc(this: ^Compiler, source: string, chunk: ^Chunk) -> bool
     this.compilingChunk = chunk
 
     Compiler_Advance(this)
-    Compiler_CompileExpression(this)
-    Compiler_Consume(this, .EOF, "Expected end of expression")
+
+    for !Compiler_MatchToken(this, .EOF) {
+        Compiler_CompileDeclaration(this)
+    }
+
+    //    Compiler_CompileExpression(this)
+    //    Compiler_Consume(this, .EOF, "Expected end of expression")
 
     Compiler_End(this)
 
@@ -63,13 +68,32 @@ Compiler_ParsePrecedence :: proc(this: ^Compiler, precedence: Precedence) {
         return
     }
 
-    prefixRule(this)
+    canAssign := precedence <= .Assignment
+    prefixRule(this, canAssign)
 
     for precedence <= Compiler_GetRule(this.parser.current.type).precedence {
         Compiler_Advance(this)
         infix_rule := Compiler_GetRule(this.parser.previous.type).infix
-        infix_rule(this)
+        infix_rule(this, canAssign)
     }
+}
+
+@(private="file")
+Compiler_IdentifierConstant :: proc(this: ^Compiler, name: ^Token) -> u8 {
+    nameRunes := name.source.([]rune)[name.start:name.start + name.length]
+    str := Chunk_AllocateStringFromRunes(this.compilingChunk, nameRunes)
+    return Compiler_MakeConstant(this, Value_String(str))
+}
+
+@(private="file")
+Compiler_ParseVariable :: proc(this: ^Compiler, errorMessage: string) -> u8 {
+    Compiler_Consume(this, .Identifier, errorMessage)
+    return Compiler_IdentifierConstant(this, &this.parser.previous)
+}
+
+@(private="file")
+Compiler_DefineVariable :: proc(this: ^Compiler, global: u8) {
+    Compiler_EmitOpAndOperand(this, .DefineGlobal, global)
 }
 
 // *************** Utils ***************
@@ -87,6 +111,18 @@ Compiler_MakeConstant :: proc(this: ^Compiler, value: Value) -> u8 {
         return 0
     }
     return u8(constant)
+}
+
+@(private="file")
+Compiler_MatchToken :: proc(this: ^Compiler, type: TokenType) -> bool {
+    if !Compiler_CheckToken(this, type) do return false
+    Compiler_Advance(this)
+    return true
+}
+
+@(private="file")
+Compiler_CheckToken :: proc(this: ^Compiler, type: TokenType) -> bool {
+    return this.parser.current.type == type
 }
 
 @(private="file")
@@ -115,7 +151,7 @@ Precedence :: enum {
 }
 
 @(private="file")
-ParseFn :: proc(this: ^Compiler)
+ParseFn :: proc(this: ^Compiler, canAssign: bool)
 @(private="file")
 ParseRule :: struct {
     prefix, infix: ParseFn,
@@ -145,7 +181,7 @@ rules : [TokenType]ParseRule = {
     .Less = { nil, Compiler_CompileBinary, .Comparison },
     .LessEqual = { nil, Compiler_CompileBinary, .Comparison },
     .ArrowRight = { nil, nil, .None },
-    .Identifier = { nil, nil, .None },
+    .Identifier = { Compiler_CompileVariable, nil, .None },
     .TypeId = { nil, nil, .None },
     .NumericLiteral = { Compiler_CompileNumeric, nil, .None },
     .StringLiteral = { Compiler_CompileString, nil, .None },
@@ -159,6 +195,7 @@ rules : [TokenType]ParseRule = {
     .Nil = { Compiler_CompileLiteral, nil, .None },
     .Or = { nil, nil, .None },
     .Print = { nil, nil, .None },
+    .Var = { nil, nil, .None },
     .Proc = { nil, nil, .None },
     .Struct = { nil, nil, .None },
     .Distinct = { nil, nil, .None },
@@ -176,7 +213,7 @@ Compiler_GetRule :: proc(type: TokenType) -> ^ParseRule {
 // *************** Expression compilation helpers ***************
 
 @(private="file")
-Compiler_CompileNumeric :: proc(this: ^Compiler) {
+Compiler_CompileNumeric :: proc(this: ^Compiler, canAssign: bool) {
     previous := this.parser.previous
     numberStr := utf8.runes_to_string(previous.source.([]rune)[previous.start:previous.start + previous.length])
     defer delete(numberStr)
@@ -192,7 +229,7 @@ Compiler_CompileNumeric :: proc(this: ^Compiler) {
 }
 
 @(private="file")
-Compiler_CompileString :: proc(this: ^Compiler) {
+Compiler_CompileString :: proc(this: ^Compiler, canAssign: bool) {
     start := this.parser.previous.start + 1 // Skip the "
     end := start + this.parser.previous.length - 2 // Remove the final "
     str := Chunk_AllocateStringFromRunes(this.compilingChunk, this.parser.previous.source.([]rune)[start:end])
@@ -201,7 +238,7 @@ Compiler_CompileString :: proc(this: ^Compiler) {
 }
 
 @(private="file")
-Compiler_CompileRune :: proc(this: ^Compiler) {
+Compiler_CompileRune :: proc(this: ^Compiler, canAssign: bool) {
     start := this.parser.previous.start + 1 // Skip the '
     r := Chunk_AllocateRune(this.compilingChunk, this.parser.previous.source.([]rune)[start])
     constant := Compiler_MakeConstant(this, Value_Rune(r))
@@ -209,13 +246,29 @@ Compiler_CompileRune :: proc(this: ^Compiler) {
 }
 
 @(private="file")
-Compiler_CompileGrouping :: proc(this: ^Compiler) {
+Compiler_CompileNamedVariable :: proc(this: ^Compiler, name: ^Token, canAssign: bool) {
+    arg := Compiler_IdentifierConstant(this, name)
+
+    if canAssign && Compiler_MatchToken(this, .Equal) {
+        Compiler_CompileExpression(this)
+        Compiler_EmitOpAndOperand(this, .SetGlobal, arg)
+    } else do Compiler_EmitOpAndOperand(this, .GetGlobal, arg)
+
+}
+
+@(private="file")
+Compiler_CompileVariable :: proc(this: ^Compiler, canAssign: bool) {
+    Compiler_CompileNamedVariable(this, &this.parser.previous, canAssign)
+}
+
+@(private="file")
+Compiler_CompileGrouping :: proc(this: ^Compiler, canAssign: bool) {
     Compiler_CompileExpression(this)
     Compiler_Consume(this, .RightParen, "Expected ')' after expression.")
 }
 
 @(private="file")
-Compiler_CompileUnary :: proc(this: ^Compiler) {
+Compiler_CompileUnary :: proc(this: ^Compiler, canAssign: bool) {
     operatorType := this.parser.previous.type
 
     // Compile the operand
@@ -229,7 +282,7 @@ Compiler_CompileUnary :: proc(this: ^Compiler) {
 }
 
 @(private="file")
-Compiler_CompileBinary :: proc(this: ^Compiler) {
+Compiler_CompileBinary :: proc(this: ^Compiler, canAssign: bool) {
     operatorType := this.parser.previous.type
     rule := Compiler_GetRule(operatorType)
     Compiler_ParsePrecedence(this, Precedence(int(rule.precedence) + 1))
@@ -250,11 +303,11 @@ Compiler_CompileBinary :: proc(this: ^Compiler) {
 }
 
 @(private="file")
-Compiler_CompileLiteral :: proc(this: ^Compiler) {
+Compiler_CompileLiteral :: proc(this: ^Compiler, canAssign: bool) {
     #partial switch this.parser.previous.type {
     case .False: Compiler_EmitOp(this, .False)
     case .True: Compiler_EmitOp(this, .True)
-//    case .Nil: Compiler_EmitOp(this, .Nil)
+    //    case .Nil: Compiler_EmitOp(this, .Nil)
     case: return
     }
 }
@@ -262,6 +315,60 @@ Compiler_CompileLiteral :: proc(this: ^Compiler) {
 @(private="file")
 Compiler_CompileExpression :: proc(this: ^Compiler) {
     Compiler_ParsePrecedence(this, .Assignment)
+}
+
+@(private="file")
+Compiler_CompileVarDeclaration :: proc(this: ^Compiler) {
+    global := Compiler_ParseVariable(this, "Expect variable name")
+
+    if Compiler_MatchToken(this, .Equal) do Compiler_CompileExpression(this)
+    else do Compiler_EmitOp(this, .Nil)
+
+    Compiler_Consume(this, .Semicolon, "Expect ';' after variable declaration")
+    Compiler_DefineVariable(this, global)
+}
+
+@(private="file")
+Compiler_CompileDeclaration :: proc(this: ^Compiler) {
+    if Compiler_MatchToken(this, .Var) do Compiler_CompileVarDeclaration(this)
+    else do Compiler_CompileStatement(this)
+    if (this.parser.panicMode) do Compiler_Synchronize(this)
+}
+
+@(private="file")
+Compiler_CompileStatement :: proc(this: ^Compiler) {
+    if Compiler_MatchToken(this, .Print) do Compiler_CompilePrintStatement(this)
+    else do Compiler_CompileExpressionStatement(this)
+}
+
+@(private="file")
+Compiler_CompileExpressionStatement :: proc(this: ^Compiler) {
+    Compiler_CompileExpression(this)
+    Compiler_Consume(this, .Semicolon, "Expect ';' after expression")
+    Compiler_EmitOp(this, .Pop)
+}
+
+@(private="file")
+Compiler_CompilePrintStatement :: proc(this: ^Compiler) {
+    Compiler_CompileExpression(this)
+    Compiler_Consume(this, .Semicolon, "Expect ';' after value.")
+    Compiler_EmitOp(this, .Print)
+}
+
+// *************** Error handling ***************
+
+@(private="file")
+Compiler_Synchronize :: proc(this: ^Compiler) {
+    this.parser.panicMode = false
+
+    for this.parser.current.type != .EOF {
+        if this.parser.previous.type == .Semicolon do return
+        #partial switch this.parser.current.type {
+        case .If, .Else, .For, .Defer, .Print, .Var, .Proc, .Struct, .Distinct, .Return: return
+        case: {
+        } // Do nothing otherwise
+        }
+    }
 }
 
 // *************** Bytecode generation helpers ***************

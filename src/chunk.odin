@@ -7,9 +7,13 @@ import utf8 "core:unicode/utf8"
 
 OpCode :: enum {
     Constant,
-    //    Nil,
+    Nil,
     True,
     False,
+    Pop,
+    GetGlobal,
+    DefineGlobal,
+    SetGlobal,
     Equal,
     Greater,
     Less,
@@ -19,6 +23,7 @@ OpCode :: enum {
     Divide,
     Not,
     Negate,
+    Print,
     Return,
 }
 

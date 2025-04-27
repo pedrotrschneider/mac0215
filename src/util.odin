@@ -11,9 +11,9 @@ IsAlpha :: proc(r: rune) -> bool {
     return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
 }
 
-InitGrowingArenaAllocator :: proc(arena: ^vmem.Arena) -> (allocator: mem.Allocator, ok: bool) {
+InitGrowingArenaAllocator :: proc(arena: ^vmem.Arena) -> (allocator: mem.Allocator, success: bool) {
     arenaError := vmem.arena_init_growing(arena)
-    ok = arenaError == nil
+    success = arenaError == nil
     allocator = vmem.arena_allocator(arena)
     return
 }

@@ -8,9 +8,13 @@ EXECUTE_TEST_CASE :: #config(EXECUTE_TEST_CASE, false)
 
 OP_NAME := [OpCode]string {
     .Constant = "OP_CONSTANT",
-//    .Nil = "OP_NIL",
+    .Nil = "OP_NIL",
     .True = "OP_TRUE",
     .False = "OP_FALSE",
+    .Pop = "OP_POP",
+    .GetGlobal = "OP_GET_GLOBAL",
+    .DefineGlobal = "OP_DEFINE_GLOBAL",
+    .SetGlobal = "OP_SET_GLOBAL",
     .Equal = "OP_EQUAL",
     .Greater = "OP_GREATER",
     .Less = "OP_LESS",
@@ -20,6 +24,7 @@ OP_NAME := [OpCode]string {
     .Divide = "OP_DIVIDE",
     .Not = "OP_NOT",
     .Negate = "OP_NEGATE",
+    .Print = "OP_PRINT",
     .Return = "OP_RETURN",
 }
 
@@ -33,8 +38,8 @@ Debug_DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
 
     op := OpCode(chunk.code[offset])
     switch op {
-    case .Constant: return ConstantInstruction(op, chunk, offset)
-    case /*.Nil,*/ .True, .False, .Equal, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Return:
+    case .Constant, .GetGlobal, .DefineGlobal, .SetGlobal: return ConstantInstruction(op, chunk, offset)
+    case .Nil, .True, .False, .Equal, .Pop, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Print, .Return:
         return SimpleInstruction(op, offset)
     case:
         fmt.println("[ERROR] Unknown opcode:", int(op))

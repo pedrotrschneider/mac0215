@@ -85,6 +85,11 @@ Value_Print :: proc(this: Value) {
     }
 }
 
+Value_Println :: proc(this: Value) {
+    Value_Print(this)
+    fmt.println()
+}
+
 // *************** Getters ***************
 
 Value_TryAsBool :: proc(this: Value) -> (^Bool, bool) {
