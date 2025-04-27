@@ -1,0 +1,14 @@
+if
+else
+for
+defer
+true
+false
+nil
+and
+or
+print
+proc
+struct
+distinct
+return
