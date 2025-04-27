@@ -1,4 +1,4 @@
-package main
+package yupii
 
 import "core:strconv"
 import utf8 "core:unicode/utf8"
@@ -8,25 +8,25 @@ import os "core:os"
 // *************** PUBLIC ***************
 
 Compiler :: struct {
-    compiling_chunk: ^Chunk,
-    // TODO: The scanner will need to be cleaned up in the future
+    compilingChunk : ^Chunk,
     scanner: Scanner,
     parser: Parser,
 }
 
 Compiler_Compile :: proc(this: ^Compiler, source: string, chunk: ^Chunk) -> bool {
     Scanner_Init(&this.scanner, source)
+    defer Scanner_Free(&this.scanner)
     Parser_Init(&this.parser)
 
-    this.compiling_chunk = chunk
+    this.compilingChunk = chunk
 
     Compiler_Advance(this)
     Compiler_CompileExpression(this)
-    Compiler_Consume(this, .EOF, "Expected end of expression.")
+    Compiler_Consume(this, .EOF, "Expected end of expression")
 
     Compiler_End(this)
 
-    return !this.parser.had_error
+    return !this.parser.hadError
 }
 
 // *************** PRIVATE ***************
@@ -42,9 +42,9 @@ Compiler_Advance :: proc(this: ^Compiler) {
         if this.parser.current.type != .Error do break
 
         current := this.parser.current
-        error_message := utf8.runes_to_string(current.source[current.start:current.start + current.length])
-        defer delete(error_message)
-        Parser_ErrorAtCurrent(&this.parser, error_message)
+        errorMessage, shouldFree := Token_GetSourceString(&current)
+        defer if shouldFree do delete(errorMessage)
+        Parser_ErrorAtCurrent(&this.parser, errorMessage)
     }
 }
 
@@ -76,7 +76,7 @@ Compiler_ParsePrecedence :: proc(this: ^Compiler, precedence: Precedence) {
 
 @(private="file")
 Compiler_CurrentChunk :: proc(this: ^Compiler) -> ^Chunk {
-    return this.compiling_chunk
+    return this.compilingChunk
 }
 
 @(private="file")
@@ -93,7 +93,7 @@ Compiler_MakeConstant :: proc(this: ^Compiler, value: Value) -> u8 {
 Compiler_End :: proc(this: ^Compiler) {
     Compiler_EmitReturn(this)
     when DEBUG_PRINT_CODE {
-        if !this.parser.had_error do Chunk_Disassemble(Compiler_CurrentChunk(this), "Code")
+        if !this.parser.hadError do Chunk_Disassemble(Compiler_CurrentChunk(this), "Code")
     }
 }
 
@@ -132,6 +132,7 @@ rules : [TokenType]ParseRule = {
     .Dot = { nil, nil, .None },
     .Minus = { Compiler_CompileUnary, Compiler_CompileBinary, .Term },
     .Plus = { nil, Compiler_CompileBinary, .Term },
+    .Colon = { nil, nil, .None },
     .Semicolon = { nil, nil, .None },
     .Slash = { nil, Compiler_CompileBinary, .Factor },
     .Star = { nil, Compiler_CompileBinary, .Factor },
@@ -143,25 +144,26 @@ rules : [TokenType]ParseRule = {
     .GreaterEqual = { nil, Compiler_CompileBinary, .Comparison },
     .Less = { nil, Compiler_CompileBinary, .Comparison },
     .LessEqual = { nil, Compiler_CompileBinary, .Comparison },
+    .ArrowRight = { nil, nil, .None },
     .Identifier = { nil, nil, .None },
-    .String = { Compiler_CompileString, nil, .None },
-    .Number = { Compiler_CompileNumber, nil, .None },
+    .TypeId = { nil, nil, .None },
+    .NumericLiteral = { Compiler_CompileNumeric, nil, .None },
+    .StringLiteral = { Compiler_CompileString, nil, .None },
+    .RuneLiteral = { Compiler_CompileRune, nil, .None },
     .And = { nil, nil, .None },
-    .Class = { nil, nil, .None },
     .Else = { nil, nil, .None },
     .False = { Compiler_CompileLiteral, nil, .None },
     .For = { nil, nil, .None },
-    .Fun = { nil, nil, .None },
+    .Defer = { nil, nil, .None },
     .If = { nil, nil, .None },
     .Nil = { Compiler_CompileLiteral, nil, .None },
     .Or = { nil, nil, .None },
     .Print = { nil, nil, .None },
+    .Proc = { nil, nil, .None },
+    .Struct = { nil, nil, .None },
+    .Distinct = { nil, nil, .None },
     .Return = { nil, nil, .None },
-    .Super = { nil, nil, .None },
-    .This = { nil, nil, .None },
     .True = { Compiler_CompileLiteral, nil, .None },
-    .Var = { nil, nil, .None },
-    .While = { nil, nil, .None },
     .Error = { nil, nil, .None },
     .EOF = { nil, nil, .None },
 }
@@ -174,26 +176,35 @@ Compiler_GetRule :: proc(type: TokenType) -> ^ParseRule {
 // *************** Expression compilation helpers ***************
 
 @(private="file")
-Compiler_CompileNumber :: proc(this: ^Compiler) {
+Compiler_CompileNumeric :: proc(this: ^Compiler) {
     previous := this.parser.previous
-    number_str := utf8.runes_to_string(previous.source[previous.start:previous.start + previous.length])
-    defer delete(number_str)
+    numberStr := utf8.runes_to_string(previous.source.([]rune)[previous.start:previous.start + previous.length])
+    defer delete(numberStr)
 
-    number, ok := strconv.parse_f64(number_str)
+    number, ok := strconv.parse_f64(numberStr)
     if !ok {
-        fmt.fprintln(os.stderr, "[ERROR] Unable to convert", number_str, "to number")
+        fmt.fprintln(os.stderr, "[ERROR] Unable to convert", numberStr, "to number")
         panic("Exiting...")
     }
-    value := Value_Number(number)
+    literal := Chunk_AllocateF64(this.compilingChunk, number)
+    value := Value_F64(literal)
     Compiler_EmitConstant(this, Compiler_MakeConstant(this, value))
 }
 
 @(private="file")
 Compiler_CompileString :: proc(this: ^Compiler) {
-    start := this.parser.previous.start + 1
-    end := start + this.parser.previous.length - 2
-    stringObj := Obj_CopyRunesToObjString(this.parser.previous.source[start:end])
-    constant := Compiler_MakeConstant(this, Value_Obj(stringObj))
+    start := this.parser.previous.start + 1 // Skip the "
+    end := start + this.parser.previous.length - 2 // Remove the final "
+    str := Chunk_AllocateStringFromRunes(this.compilingChunk, this.parser.previous.source.([]rune)[start:end])
+    constant := Compiler_MakeConstant(this, Value_String(str))
+    Compiler_EmitConstant(this, constant)
+}
+
+@(private="file")
+Compiler_CompileRune :: proc(this: ^Compiler) {
+    start := this.parser.previous.start + 1 // Skip the '
+    r := Chunk_AllocateRune(this.compilingChunk, this.parser.previous.source.([]rune)[start])
+    constant := Compiler_MakeConstant(this, Value_Rune(r))
     Compiler_EmitConstant(this, constant)
 }
 
@@ -205,36 +216,36 @@ Compiler_CompileGrouping :: proc(this: ^Compiler) {
 
 @(private="file")
 Compiler_CompileUnary :: proc(this: ^Compiler) {
-    operator_type := this.parser.previous.type
+    operatorType := this.parser.previous.type
 
     // Compile the operand
     Compiler_ParsePrecedence(this, .Unary)
 
-    #partial switch operator_type {
+    #partial switch operatorType {
     case .Bang: Compiler_EmitOp(this, .Not)
     case .Minus: Compiler_EmitOp(this, .Negate)
-    case: fmt.fprintln(os.stderr, "[ERROR]", operator_type, "is not a unary operator"); panic("Exiting...")
+    case: fmt.fprintln(os.stderr, "[ERROR]", operatorType, "is not a unary operator"); panic("Exiting...")
     }
 }
 
 @(private="file")
 Compiler_CompileBinary :: proc(this: ^Compiler) {
-    operator_type := this.parser.previous.type
-    rule := Compiler_GetRule(operator_type)
+    operatorType := this.parser.previous.type
+    rule := Compiler_GetRule(operatorType)
     Compiler_ParsePrecedence(this, Precedence(int(rule.precedence) + 1))
 
-    #partial switch operator_type {
-    case .BangEqual: Compiler_EmitOps(this, .Equal, .Not)
+    #partial switch operatorType {
+    case .BangEqual: Compiler_EmitOps(this, { .Equal, .Not })
     case .EqualEqual: Compiler_EmitOp(this, .Equal)
     case .Greater: Compiler_EmitOp(this, .Greater)
-    case .GreaterEqual: Compiler_EmitOps(this, .Less, .Not)
+    case .GreaterEqual: Compiler_EmitOps(this, { .Less, .Not })
     case .Less: Compiler_EmitOp(this, .Less)
-    case .LessEqual: Compiler_EmitOps(this, .Greater, .Not)
+    case .LessEqual: Compiler_EmitOps(this, { .Greater, .Not })
     case .Plus: Compiler_EmitOp(this, .Add)
     case .Minus: Compiler_EmitOp(this, .Subtract)
     case .Star: Compiler_EmitOp(this, .Multiply)
     case .Slash: Compiler_EmitOp(this, .Divide)
-    case: fmt.fprintln(os.stderr, "[ERROR]", operator_type, "is not a binary operator"); panic("Exiting...")
+    case: fmt.fprintln(os.stderr, "[ERROR]", operatorType, "is not a binary operator"); panic("Exiting...")
     }
 }
 
@@ -243,7 +254,7 @@ Compiler_CompileLiteral :: proc(this: ^Compiler) {
     #partial switch this.parser.previous.type {
     case .False: Compiler_EmitOp(this, .False)
     case .True: Compiler_EmitOp(this, .True)
-    case .Nil: Compiler_EmitOp(this, .Nil)
+//    case .Nil: Compiler_EmitOp(this, .Nil)
     case: return
     }
 }
@@ -266,7 +277,7 @@ Compiler_EmitOp :: proc(this: ^Compiler, op: OpCode) {
 }
 
 @(private="file")
-Compiler_EmitOps :: proc(this: ^Compiler, ops: ..OpCode) {
+Compiler_EmitOps :: proc(this: ^Compiler, ops: []OpCode) {
     for op in ops {
         Compiler_EmitOp(this, op)
     }

@@ -1,25 +1,27 @@
-package main
+package yupii
 
-import "core:unicode/utf8"
+import utf8 "core:unicode/utf8"
 
 TokenType :: enum {
-// Single character tokens.
     LeftParen, RightParen,
     LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus,
-    Semicolon, Slash, Star,
-    // One or two character tokens.
+    Colon, Semicolon, Slash, Star,
+
     Bang, BangEqual,
     Equal, EqualEqual,
     Greater, GreaterEqual,
     Less, LessEqual,
-    // Literals
-    Identifier, String, Number,
-    // Keywords
-    And, Class, Else, False,
-    For, Fun, If, Nil, Or,
-    Print, Return, Super, This,
-    True, Var, While,
+    ArrowRight,
+
+    Identifier, TypeId,
+    NumericLiteral, StringLiteral, RuneLiteral,
+
+    If, Else, For, Defer,
+    True, False, Nil,
+    And, Or, Print,
+    Proc, Struct, Distinct,
+    Return,
 
     Error, EOF,
 }
@@ -27,26 +29,24 @@ TokenType :: enum {
 Token :: struct {
     type: TokenType,
     start, length, line: int,
-    source: []rune,
+    source: union {
+        []rune,
+        string,
+    },
 }
 
 Token_Create :: proc(scanner: ^Scanner, type: TokenType) -> Token {
-    return Token {
-        type = type,
-        start = scanner.start,
-        length = scanner.current - scanner.start,
-        line = scanner.line,
-        source = scanner.source,
-    }
+    return Token { type, scanner.start, scanner.current - scanner.start, scanner.line, scanner.source }
 }
 
 Token_CreateError :: proc(scanner: ^Scanner, message: string) -> Token {
-    return Token {
-        type = .Error,
-        start = 0,
-        length = len(message),
-        line = scanner.line,
-        // TODO: This memory needs to be freed. Probably should have an allocator in the scanner to allocate all memory for the tokens
-        source = utf8.string_to_runes(message),
-    }
+    return Token { .Error, 0, len(message), scanner.line, message }
+}
+
+Token_GetSourceString :: proc(this: ^Token) -> (source: string, shouldFree: bool) {
+    _, isTokenSourceRunes := this.source.([]rune)
+    if isTokenSourceRunes do source = utf8.runes_to_string(this.source.([]rune))
+    else do source = this.source.(string)
+    shouldFree = isTokenSourceRunes
+    return
 }

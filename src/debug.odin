@@ -1,4 +1,4 @@
-package main
+package yupii
 
 import "core:fmt"
 
@@ -8,7 +8,7 @@ EXECUTE_TEST_CASE :: #config(EXECUTE_TEST_CASE, false)
 
 OP_NAME := [OpCode]string {
     .Constant = "OP_CONSTANT",
-    .Nil = "OP_NIL",
+//    .Nil = "OP_NIL",
     .True = "OP_TRUE",
     .False = "OP_FALSE",
     .Equal = "OP_EQUAL",
@@ -23,7 +23,7 @@ OP_NAME := [OpCode]string {
     .Return = "OP_RETURN",
 }
 
-DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
+Debug_DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
     fmt.printf("%04d ", offset)
     if offset > 0 && chunk.lines[offset] == chunk.lines[offset - 1] {
         fmt.printf("   | ")
@@ -34,7 +34,7 @@ DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
     op := OpCode(chunk.code[offset])
     switch op {
     case .Constant: return ConstantInstruction(op, chunk, offset)
-    case .Nil, .True, .False, .Equal, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Return:
+    case /*.Nil,*/ .True, .False, .Equal, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Return:
         return SimpleInstruction(op, offset)
     case:
         fmt.println("[ERROR] Unknown opcode:", int(op))
@@ -43,11 +43,13 @@ DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
     return -1
 }
 
+@(private="file")
 SimpleInstruction :: proc(op: OpCode, offset: int) -> int {
     fmt.println(OP_NAME[op])
     return offset + 1
 }
 
+@(private="file")
 ConstantInstruction :: proc(op: OpCode, chunk: ^Chunk, offset: int) -> int {
     constant := chunk.code[offset + 1]
     fmt.printf("%-16s %4d \'", OP_NAME[op], constant)

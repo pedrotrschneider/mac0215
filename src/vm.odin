@@ -1,4 +1,4 @@
-package main
+package yupii
 
 import "core:fmt"
 import "core:os"
@@ -7,7 +7,6 @@ VM :: struct {
     chunk: ^Chunk,
     ip: int, // instruction pointer
     stack: [dynamic]Value,
-    objects: ^Obj,
 }
 
 VMInterpretResult :: enum {
@@ -18,7 +17,6 @@ VMInterpretResult :: enum {
 
 VM_Init :: proc(this: ^VM) {
     this.stack = make([dynamic]Value)
-    this.objects = nil
 }
 
 VM_Free :: proc(this: ^VM) {
@@ -52,18 +50,19 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
     }
 
     BinaryOp :: proc(this: ^VM, op: OpCode) {
-        b, okB := Value_TryAsNumber(VM_StackPop(this))
-        a, okA := Value_TryAsNumber(VM_StackPop(this))
+        b, okB := Value_TryAsF64(VM_StackPop(this))
+        a, okA := Value_TryAsF64(VM_StackPop(this))
         if !okA || !okB {
-            VM_RuntimeError(this, "Operands must be number.")
+            VM_RuntimeError(this, "Operands must be f64.")
         }
+        av, bv := a.value, b.value
         #partial switch op {
-        case .Greater: VM_StackPush(this, Value_Bool(a > b))
-        case .Less: VM_StackPush(this, Value_Bool(a < b))
-        //      case .Add: VM_StackPush(this, Value_Number(a + b))
-        case .Subtract: VM_StackPush(this, Value_Number(a - b))
-        case .Multiply: VM_StackPush(this, Value_Number(a * b))
-        case .Divide: VM_StackPush(this, Value_Number(a / b))
+        case .Greater: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, av > bv)))
+        case .Less: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, av < bv)))
+        case .Add: VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, av + bv)))
+        case .Subtract: VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, av - bv)))
+        case .Multiply: VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, av - bv)))
+        case .Divide: VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, av / bv)))
         case: panic("[ERROR] Invalid Operation: Not a binary operation")
         }
     }
@@ -82,45 +81,48 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             }
             fmt.println()
 
-            DisassembleInstruction(this.chunk, this.ip)
+            Debug_DisassembleInstruction(this.chunk, this.ip)
         }
+
 
         op := ReadOp(this)
         switch op {
         case .Constant: VM_StackPush(this, ReadConstant(this))
-        case .Nil: VM_StackPush(this, Value_Nil())
-        case .True: VM_StackPush(this, Value_Bool(true))
-        case .False: VM_StackPush(this, Value_Bool(false))
+//        case .Nil: VM_StackPush(this, Value_Nil())
+        case .True: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, true)))
+        case .False: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, false)))
         case .Equal: {
             b := VM_StackPop(this)
             a := VM_StackPop(this)
-            VM_StackPush(this, Value_Bool(Value_Equals(a, b)))
+            value := Chunk_AllocateBool(this.chunk, Value_Equals(a, b))
+            VM_StackPush(this, Value_Bool(value))
         }
-        case .Greater, .Less, .Subtract, .Multiply, .Divide: BinaryOp(this, op)
-        case .Add: {
-            if Value_IsString(VM_StackPeek(this, 0)) && Value_IsString(VM_StackPeek(this, 0)) {
-                VM_ConcatenateObjStrings(this)
-            } else if Value_IsNumber(VM_StackPeek(this, 0)) && Value_IsNumber(VM_StackPeek(this, 0)) {
-                b := Value_AsNumber(VM_StackPop(this))
-                a := Value_AsNumber(VM_StackPop(this))
-                VM_StackPush(this, Value_Number(a + b))
-            } else {
-                VM_RuntimeError(this, "Operands must be two number os two strings")
-                return .RuntimeError
-            }
-        }
-        case .Not: VM_StackPush(this, Value_Bool(Value_IsFalsey(VM_StackPop(this))))
+        case .Greater, .Less, .Add, .Subtract, .Multiply, .Divide: BinaryOp(this, op)
+//        case .Add: {
+//            if Value_IsString(VM_StackPeek(this, 0)) && Value_IsString(VM_StackPeek(this, 0)) {
+//                VM_ConcatenateObjStrings(this)
+//            } else if Value_IsNumber(VM_StackPeek(this, 0)) && Value_IsNumber(VM_StackPeek(this, 0)) {
+//                b := Value_AsNumber(VM_StackPop(this))
+//                a := Value_AsNumber(VM_StackPop(this))
+//                VM_StackPush(this, Value_Number(a + b))
+//            } else {
+//                VM_RuntimeError(this, "Operands must be two number os two strings")
+//                return .RuntimeError
+//            }
+//        }
+        case .Not: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, Value_IsFalsey(VM_StackPop(this)))))
         case .Negate: {
-            number, ok := Value_TryAsNumber(VM_StackPeek(this, 0))
+            number, ok := Value_TryAsF64(VM_StackPeek(this, 0))
             if !ok {
                 VM_RuntimeError(this, "Operand must be a number.")
                 return .RuntimeError
             }
-            VM_StackPush(this, Value_Number(-number))
+            VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, -number.value)))
             VM_StackPop(this)
         }
         case .Return: {
-            Value_Println(VM_StackPop(this))
+            Value_Print(VM_StackPop(this))
+            fmt.println()
             fmt.println()
             return .Ok
         }
@@ -158,7 +160,7 @@ VM_REPL :: proc(this: ^VM) {
             if err != nil {
                 panic("[ERROR] Failed to read from stdin")
             }
-            line := string(buffer[:n-1])
+            line := string(buffer[:n - 1])
             if len(line) > 0 do VM_Interpret(this, line)
             else do break
         }
@@ -189,14 +191,14 @@ VM_RuntimeError :: proc(this: ^VM, format: string, vargs: ..string) {
 }
 
 // Warning: This procedure assumes the top two values on the stack are `ObjString`s
-VM_ConcatenateObjStrings :: proc(this: ^VM) {
-    b := Value_AsString(VM_StackPop(this))
-    a := Value_AsString(VM_StackPop(this))
-
-    newLength := len(a.runes) + len(b.runes)
-    newRunes := make([]rune, newLength)
-    copy(newRunes[:len(a.runes)], a.runes)
-    copy(newRunes[len(a.runes):], b.runes)
-    result := Obj_TakeRunesToObjString(newRunes)
-    VM_StackPush(this, Value_Obj(result))
-}
+//VM_ConcatenateObjStrings :: proc(this: ^VM) {
+//    b := Value_AsString(VM_StackPop(this))
+//    a := Value_AsString(VM_StackPop(this))
+//
+//    newLength := len(a.runes) + len(b.runes)
+//    newRunes := make([]rune, newLength)
+//    copy(newRunes[:len(a.runes)], a.runes)
+//    copy(newRunes[len(a.runes):], b.runes)
+//    result := Obj_TakeRunesToObjString(newRunes)
+//    VM_StackPush(this, Value_Obj(result))
+//}

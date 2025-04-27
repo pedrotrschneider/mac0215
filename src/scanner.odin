@@ -1,7 +1,37 @@
-package main
+package yupii
 
 import "core:slice"
 import "core:unicode/utf8"
+
+Keyword :: enum {
+    If, Else, For, Defer,
+    True, False, Nil,
+    And, Or, Print,
+    Proc, Struct, Distinct,
+    Return,
+}
+
+KeywordData :: struct {
+    tokenType: TokenType,
+    runes: []rune,
+}
+
+keywords : [Keyword]KeywordData = {
+    .If = { .If, { 'i', 'f' } },
+    .Else = { .Else, { 'e', 'l', 's', 'e' } },
+    .For = { .For, { 'f', 'o', 'r' } },
+    .Defer = { .Defer, { 'd', 'e', 'f', 'e', 'r' } },
+    .True = { .True, { 't', 'r', 'u', 'e' } },
+    .False = { .False, { 'f', 'a', 'l', 's', 'e' } },
+    .Nil = { .Nil, { 'n', 'i', 'l' } },
+    .And = { .And, { 'a', 'n', 'd' } },
+    .Or = { .Or, { 'o', 'r' } },
+    .Print = { .Print, { 'p', 'r', 'i', 'n', 't' } },
+    .Proc = { .Proc, { 'p', 'r', 'o', 'c' } },
+    .Struct = { .Struct, { 's', 't', 'r', 'u', 'c', 't' } },
+    .Distinct = { .Distinct, { 'd', 'i', 's', 't', 'i', 'n', 'c', 't' } },
+    .Return = { .Return, { 'r', 'e', 't', 'u', 'r', 'n' } },
+}
 
 Scanner :: struct {
     start, // begining of the current lexeme.
@@ -14,9 +44,11 @@ Scanner_Init :: proc(this: ^Scanner, source: string) {
     this.start = 0
     this.current = 0
     this.line = 1
-    // TODO: This memory needs to be freed
     this.source = utf8.string_to_runes(source)
-    // TODO: Keep a copy of the original string as well for faster number conversion
+}
+
+Scanner_Free :: proc(this: ^Scanner) {
+    delete(this.source)
 }
 
 Scanner_IsAtEnd :: proc(this: ^Scanner) -> bool {
@@ -58,9 +90,11 @@ Scanner_SkipWhitespace :: proc(this: ^Scanner) {
     }
 }
 
-Scanner_CheckKeyword :: proc(this: ^Scanner, start: int, keyword: []rune, type: TokenType) -> TokenType {
-    if len(this.source) < this.start + start + len(keyword) do return .Identifier
-    if slice.equal(this.source[this.start + start:this.start + start + len(keyword)], keyword) do return type
+Scanner_CheckKeyword :: proc(this: ^Scanner, start: int, keyword: Keyword) -> TokenType {
+    runes := keywords[keyword].runes
+    tokenType := keywords[keyword].tokenType
+    if len(this.source) < this.start + (len(runes)) do return .Identifier
+    if slice.equal(this.source[this.start + start : this.start + len(runes)], runes[start:]) do return tokenType
     return .Identifier
 }
 
@@ -80,10 +114,21 @@ Scanner_ConsumeStringLiteral :: proc(this: ^Scanner) -> Token {
 
     // Closing quote
     Scanner_Advance(this)
-    return Token_Create(this, .String)
+    return Token_Create(this, .StringLiteral)
 }
 
-Scanner_ConsumeNumber :: proc(this: ^Scanner) -> Token {
+Scanner_ConsumeRuneLiteral :: proc(this: ^Scanner) -> Token {
+    for Scanner_Peek(this) != '\'' && !Scanner_IsAtEnd(this) {
+        Scanner_Advance(this)
+    }
+    if Scanner_IsAtEnd(this) do return Token_CreateError(this, "Unterminated rune literal")
+
+    // Closing quote
+    Scanner_Advance(this)
+    return Token_Create(this, .RuneLiteral)
+}
+
+Scanner_ConsumeNumericLiteral :: proc(this: ^Scanner) -> Token {
     for IsDigit(Scanner_Peek(this)) do Scanner_Advance(this)
 
     // Look for a fractional part
@@ -94,39 +139,44 @@ Scanner_ConsumeNumber :: proc(this: ^Scanner) -> Token {
         for IsDigit(Scanner_Peek(this)) do Scanner_Advance(this)
     }
 
-    return Token_Create(this, .Number)
+    return Token_Create(this, .NumericLiteral)
 }
 
 Scanner_GetIdentifierType :: proc(this: ^Scanner) -> TokenType {
+//    IdentifierRune :: proc(this: ^Scanner, depth: int) -> rune {
+//        return this.source[this.start + depth - 1]
+//    }
+//
+//    IsIdentifierSmall :: proc(this: ^Scanner, depth: int) -> bool {
+//        return this.current - this.start < depth - 1
+//    }
+//
+//    depth := 1
     switch this.source[this.start] {
-    case 'a': return Scanner_CheckKeyword(this, 1, { 'n', 'd' }, .And)
-    case 'c': return Scanner_CheckKeyword(this, 1, { 'l', 'a', 's', 's' }, .Class)
-    case 'e': return Scanner_CheckKeyword(this, 1, { 'l', 's', 'e' }, .Else)
+    case 'a': return Scanner_CheckKeyword(this, 1, .And)
+    case 'd': {
+        if this.current - this.start < 1 do break
+        switch this.source[this.start + 1] {
+        case 'e': return Scanner_CheckKeyword(this, 2, .Defer)
+        case 'i': return Scanner_CheckKeyword(this, 2, .Distinct)
+        }
+    }
+    case 'e': return Scanner_CheckKeyword(this, 1, .Else)
     case 'f': {
-        if this.current - this.start < 1 do break
+        if this.current - this.start < 1 do break // Identifier is not big enough
         switch this.source[this.start + 1] {
-        case 'a': return Scanner_CheckKeyword(this, 2, { 'l', 's', 'e' }, .False)
-        case 'o': return Scanner_CheckKeyword(this, 2, { 'r' }, .For)
-        case 'u': return Scanner_CheckKeyword(this, 2, { 'n' }, .False)
+        case 'a': return Scanner_CheckKeyword(this, 2, .False)
+        case 'o': return Scanner_CheckKeyword(this, 2, .For)
         }
     }
-    case 'i': return Scanner_CheckKeyword(this, 1, { 'f' }, .If)
-    case 'n': return Scanner_CheckKeyword(this, 1, { 'i', 'l' }, .Nil)
-    case 'o': return Scanner_CheckKeyword(this, 1, { 'r' }, .Or)
-    case 'p': return Scanner_CheckKeyword(this, 1, { 'r', 'i', 'n', 't' }, .Print)
-    case 'r': return Scanner_CheckKeyword(this, 1, { 'e', 't', 't', 'u', 'r', 'n' }, .Return)
-    case 's': return Scanner_CheckKeyword(this, 1, { 'u', 'p', 'e', 'r' }, .Super)
-    case 't': {
-        if this.current - this.start < 1 do break
-        switch this.source[this.start + 1] {
-        case 'h': return Scanner_CheckKeyword(this, 2, { 'i', 's' }, .This)
-        case 'r': return Scanner_CheckKeyword(this, 2, { 'u', 'e' }, .True)
-        }
+    case 'i': return Scanner_CheckKeyword(this, 1, .If)
+    case 'n': return Scanner_CheckKeyword(this, 1, .Nil)
+    case 'o': return Scanner_CheckKeyword(this, 1, .Or)
+    case 'p': return Scanner_CheckKeyword(this, 1, .Proc)
+    case 'r': return Scanner_CheckKeyword(this, 1, .Return)
+    case 's': return Scanner_CheckKeyword(this, 1, .Struct)
+    case 't': return Scanner_CheckKeyword(this, 1, .True)
     }
-    case 'v': return Scanner_CheckKeyword(this, 1, { 'a', 'r' }, .Var)
-    case 'w': return Scanner_CheckKeyword(this, 1, { 'h', 'i', 'l', 'e' }, .While)
-    }
-
     return .Identifier
 }
 
@@ -146,19 +196,21 @@ Scanner_ScanToken :: proc(this: ^Scanner) -> Token {
     case ')': return Token_Create(this, .RightParen)
     case '{': return Token_Create(this, .LeftBrace)
     case '}': return Token_Create(this, .RightBrace)
+    case ':': return Token_Create(this, .Colon)
     case ';': return Token_Create(this, .Semicolon)
     case ',': return Token_Create(this, .Comma)
     case '.': return Token_Create(this, .Dot)
-    case '-': return Token_Create(this, .Minus)
+    case '-': return Token_Create(this, Scanner_Match(this, '>') ? .ArrowRight : .Minus)
     case '+': return Token_Create(this, .Plus)
     case '/': return Token_Create(this, .Slash)
     case '*': return Token_Create(this, .Star)
     case '!': return Token_Create(this, Scanner_Match(this, '=') ? .BangEqual    : .Bang)
     case '=': return Token_Create(this, Scanner_Match(this, '=') ? .EqualEqual   : .Equal)
-    case '<': return Token_Create(this, Scanner_Match(this, '=') ? .LessEqual    : .Less)
     case '>': return Token_Create(this, Scanner_Match(this, '=') ? .GreaterEqual : .Greater)
+    case '<': return Token_Create(this, Scanner_Match(this, '=') ? .LessEqual    : .Less)
     case '"': return Scanner_ConsumeStringLiteral(this)
-    case '0' ..= '9': return Scanner_ConsumeNumber(this)
+    case '\'': return Scanner_ConsumeRuneLiteral(this)
+    case '0' ..= '9': return Scanner_ConsumeNumericLiteral(this)
     case 'a' ..= 'z', 'A' ..= 'Z', '_': return Scanner_ConsumeIdentifier(this)
     }
 

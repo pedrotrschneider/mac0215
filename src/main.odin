@@ -1,41 +1,27 @@
-package main
+package yupii
 
 import "core:fmt"
 import os "core:os"
 //import "core:mem"
 
-TEST_INPUT :: "\"st\" + \"ri\" + \"ng\""
+TEST_INPUT :: "1 + 2"
 
 main :: proc() {
-//    defaultAllocator := context.allocator
-//    trackingAllocator: mem.Tracking_Allocator
-//    mem.tracking_allocator_init(&trackingAllocator, defaultAllocator)
-//    context.allocator = mem.tracking_allocator(&trackingAllocator)
-
 //    test()
     run()
+}
 
-//    for _, value in trackingAllocator.allocation_map {
-//        fmt.printfln("%v: Leaked %v bytes", value.location, value.size)
-//    }
-//    mem.tracking_allocator_clear(&trackingAllocator)
+testagain :: proc() -> ^int {
+    testvalue := new(int)
+    testvalue^ = 10
+    return testvalue
 }
 
 @(private="file")
 test :: proc() {
-    constants := make([dynamic]Value)
-    defer delete(constants)
-    fmt.println(len(constants))
-    fmt.println(len(constants))
-    objString := Obj_TakeRunesToObjString({ 's', 't' })
-    valueString := Value_Obj(objString)
-    valueNumber := Value_Number(100.5)
-    fmt.println(valueNumber)
-    fmt.println(valueString)
-    append(&constants, valueNumber)
-    fmt.println(constants)
-    append(&constants, valueNumber)
-    fmt.println(constants)
+    value := testagain()
+    fmt.println(value^)
+    free(value)
 }
 
 @(private="file")

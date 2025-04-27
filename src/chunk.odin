@@ -1,10 +1,13 @@
-package main
+package yupii
 
 import "core:fmt"
+import "core:mem"
+import vmem "core:mem/virtual"
+import utf8 "core:unicode/utf8"
 
 OpCode :: enum {
     Constant,
-    Nil,
+    //    Nil,
     True,
     False,
     Equal,
@@ -23,22 +26,33 @@ Chunk :: struct {
     code: [dynamic]u8,
     lines: [dynamic]int,
     constants: [dynamic]Value,
+
+    chunkArena: vmem.Arena,
+    chunkAllocator: mem.Allocator,
+    stackArena: vmem.Arena,
+    stackAllocator: mem.Allocator,
 }
 
 Chunk_Init :: proc(this: ^Chunk) {
-    this.code = make([dynamic]u8)
-    this.lines = make([dynamic]int)
-    this.constants = make([dynamic]Value)
+    chunkArenaOk: bool
+    this.chunkAllocator, chunkArenaOk = InitGrowingArenaAllocator(&this.chunkArena)
+    if !chunkArenaOk do panic("Unable to initialize chunk's arena")
+
+    this.code = make([dynamic]u8, this.chunkAllocator)
+    this.lines = make([dynamic]int, this.chunkAllocator)
+    this.constants = make([dynamic]Value, this.chunkAllocator)
+
+    stackArenaOk: bool
+    this.stackAllocator, stackArenaOk = InitGrowingArenaAllocator(&this.stackArena)
+    if !stackArenaOk do panic("Unable to initialize chunk's stack arena")
 }
 
 Chunk_Free :: proc(this: ^Chunk) {
-    delete(this.code)
-    delete(this.lines)
-    delete(this.constants)
+    vmem.arena_destroy(&this.chunkArena)
+    vmem.arena_destroy(&this.stackArena)
 }
 
 Chunk_AddConstant :: proc(this: ^Chunk, value: Value) -> int {
-    resize(&this.constants, len(this.constants) + 1)
     append(&this.constants, value)
     return len(this.constants) - 1
 }
@@ -60,6 +74,44 @@ Chunk_Disassemble :: proc(this: ^Chunk, name: string) {
     fmt.println("==", name, "==")
 
     for offset := 0; offset < len(this.code); {
-        offset = DisassembleInstruction(this, offset)
+        offset = Debug_DisassembleInstruction(this, offset)
     }
+}
+
+// *************** Allocators ***************
+
+Chunk_AllocateBool :: proc(this: ^Chunk, value: bool) -> (boolean: ^Bool) {
+    boolean = new(Bool, this.stackAllocator)
+    boolean^ = Bool { value }
+    return
+}
+
+Chunk_AllocateInt :: proc(this: ^Chunk, value: int) -> (integer: ^Int) {
+    integer = new(Int, this.stackAllocator)
+    integer^ = Int { value }
+    return
+}
+
+Chunk_AllocateF64 :: proc(this: ^Chunk, value: f64) -> (float: ^F64) {
+    float = new(F64, this.stackAllocator)
+    float^ = F64 { value }
+    return
+}
+
+Chunk_AllocateString :: proc(this: ^Chunk, value: string) -> (str: ^String) {
+    str = new(String, this.stackAllocator)
+    str^ = String { value }
+    return
+}
+
+Chunk_AllocateStringFromRunes :: proc(this: ^Chunk, runes: []rune) -> (str: ^String) {
+    str = new(String, this.stackAllocator)
+    str^ = String { utf8.runes_to_string(runes, this.stackAllocator) }
+    return
+}
+
+Chunk_AllocateRune :: proc(this: ^Chunk, value: rune) -> (r: ^Rune) {
+    r = new(Rune, this.stackAllocator)
+    r^ = Rune { value }
+    return
 }
