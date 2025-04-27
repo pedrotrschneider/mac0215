@@ -12,6 +12,8 @@ OP_NAME := [OpCode]string {
     .True = "OP_TRUE",
     .False = "OP_FALSE",
     .Pop = "OP_POP",
+    .GetLocal = "OP_GET_LOCAL",
+    .SetLocal = "OP_SET_LOCAL",
     .GetGlobal = "OP_GET_GLOBAL",
     .DefineGlobal = "OP_DEFINE_GLOBAL",
     .SetGlobal = "OP_SET_GLOBAL",
@@ -41,6 +43,7 @@ Debug_DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
     case .Constant, .GetGlobal, .DefineGlobal, .SetGlobal: return ConstantInstruction(op, chunk, offset)
     case .Nil, .True, .False, .Equal, .Pop, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Print, .Return:
         return SimpleInstruction(op, offset)
+    case .GetLocal, .SetLocal: return ByteInstruction(op, chunk, offset)
     case:
         fmt.println("[ERROR] Unknown opcode:", int(op))
         return offset + 1
@@ -60,5 +63,12 @@ ConstantInstruction :: proc(op: OpCode, chunk: ^Chunk, offset: int) -> int {
     fmt.printf("%-16s %4d \'", OP_NAME[op], constant)
     Value_Print(Chunk_GetConstantValue(chunk, constant))
     fmt.println("\'")
+    return offset + 2
+}
+
+@(private="file")
+ByteInstruction :: proc (op: OpCode, chunk: ^Chunk, offset: int) -> int {
+    slot := chunk.code[offset+1]
+    fmt.printfln("%-16s %4d", OP_NAME[op], slot)
     return offset + 2
 }

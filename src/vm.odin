@@ -43,7 +43,7 @@ VM_StackPop :: proc(this: ^VM) -> Value {
 }
 
 VM_StackPeek :: proc(this: ^VM, distance: int) -> Value {
-    return this.stack[len(this.stack) - 1 - distance]
+    return peek(&this.stack)
 }
 
 VM_Run :: proc(this: ^VM) -> VMInterpretResult {
@@ -106,6 +106,14 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
         case .True: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, true)))
         case .False: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, false)))
         case .Pop: VM_StackPop(this)
+        case .GetLocal: {
+            slot := ReadByte(this)
+            VM_StackPush(this, this.stack[slot])
+        }
+        case .SetLocal: {
+            slot := ReadByte(this)
+            this.stack[slot] = VM_StackPeek(this, 0)
+        }
         case .GetGlobal: {
             globalName := ReadString(this)
             globalValue, ok := this.globals[globalName.value]
@@ -161,6 +169,8 @@ VM_Interpret :: proc(this: ^VM, source: string) -> VMInterpretResult {
     defer Chunk_Free(&chunk)
 
     compiler: Compiler
+    Compiler_Init(&compiler)
+    defer Compiler_Free(&compiler)
     if !Compiler_Compile(&compiler, source, &chunk) do return .CompileError
 
     this.chunk = &chunk

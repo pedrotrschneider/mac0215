@@ -2,7 +2,6 @@ package yupii
 
 import "core:fmt"
 import os "core:os"
-//import "core:mem"
 
 TEST_INPUT :: "1 + 2"
 
@@ -11,17 +10,8 @@ main :: proc() {
     run()
 }
 
-testagain :: proc() -> ^int {
-    testvalue := new(int)
-    testvalue^ = 10
-    return testvalue
-}
-
 @(private="file")
 test :: proc() {
-    dir := os.get_current_directory()
-    fmt.println(dir)
-    delete(dir)
 }
 
 @(private="file")

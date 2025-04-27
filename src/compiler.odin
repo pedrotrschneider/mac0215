@@ -4,19 +4,45 @@ import "core:strconv"
 import utf8 "core:unicode/utf8"
 import fmt "core:fmt"
 import os "core:os"
+import "core:mem"
+import vmem "core:mem/virtual"
 
 // *************** PUBLIC ***************
 
+Local :: struct {
+    name: Token,
+    depth: int,
+}
+
 Compiler :: struct {
+    locals: [dynamic]Local,
+    scopeDepth: int,
     compilingChunk : ^Chunk,
     scanner: Scanner,
     parser: Parser,
+
+    compilerArena: vmem.Arena,
+    compilerAllocator: mem.Allocator,
+}
+
+Compiler_Init :: proc(this: ^Compiler) {
+    compilerArenaOk: bool
+    this.compilerAllocator, compilerArenaOk = InitGrowingArenaAllocator(&this.compilerArena)
+    if !compilerArenaOk do panic("Unable to create compiler's arena")
+
+    this.locals = make([dynamic]Local, 0, int(max(u8)) + 1, this.compilerAllocator)
+    this.scopeDepth = 0
+
+    Parser_Init(&this.parser)
+}
+
+Compiler_Free :: proc(this: ^Compiler) {
+    vmem.arena_destroy(&this.compilerArena)
 }
 
 Compiler_Compile :: proc(this: ^Compiler, source: string, chunk: ^Chunk) -> bool {
     Scanner_Init(&this.scanner, source)
     defer Scanner_Free(&this.scanner)
-    Parser_Init(&this.parser)
 
     this.compilingChunk = chunk
 
@@ -25,9 +51,6 @@ Compiler_Compile :: proc(this: ^Compiler, source: string, chunk: ^Chunk) -> bool
     for !Compiler_MatchToken(this, .EOF) {
         Compiler_CompileDeclaration(this)
     }
-
-    //    Compiler_CompileExpression(this)
-    //    Compiler_Consume(this, .EOF, "Expected end of expression")
 
     Compiler_End(this)
 
@@ -86,13 +109,64 @@ Compiler_IdentifierConstant :: proc(this: ^Compiler, name: ^Token) -> u8 {
 }
 
 @(private="file")
+Compiler_ResolveLocal :: proc(this: ^Compiler, name: ^Token) -> (u8, bool) {
+    for &local, i in this.locals {
+        if IdentifiersEqual(name, &local.name) {
+            // If local.depth == -1 this means the variable has been declared but not defined yet.
+            // If that's the case, the user is likely trying to do something like this: a := a
+            if local.depth == -1 do Parser_Error(&this.parser, "Can't read local variable in its own initializer")
+            return u8(i), true
+        }
+    }
+    return 0, false
+}
+
+@(private="file")
+Compiler_AddLocal :: proc(this: ^Compiler, name: Token) {
+    if len(this.locals) > 255 {
+        Parser_Error(&this.parser, "Too many local variables in scope.")
+        return
+    }
+    append(&this.locals, Local { name, -1 })
+}
+
+@(private="file")
+Compiler_DeclareVariable :: proc(this: ^Compiler) {
+    if this.scopeDepth == 0 do return // If it's a global variable, we don't need to do anything
+
+    name := &this.parser.previous
+    // Check if a variable with this name already exists in the current scope
+    #reverse for &local in this.locals {
+        if local.depth < this.scopeDepth do break
+        if IdentifiersEqual(name, &local.name) {
+            Parser_Error(&this.parser, "A variable with this name already existis in the current scope")
+        }
+    }
+    Compiler_AddLocal(this, name^)
+}
+
+@(private="file")
 Compiler_ParseVariable :: proc(this: ^Compiler, errorMessage: string) -> u8 {
     Compiler_Consume(this, .Identifier, errorMessage)
+
+    Compiler_DeclareVariable(this)
+    if this.scopeDepth > 0 do return 0
+
     return Compiler_IdentifierConstant(this, &this.parser.previous)
 }
 
 @(private="file")
+Compiler_MarkVariableInitialized :: proc(this: ^Compiler) {
+    this.locals[len(this.locals) - 1].depth = this.scopeDepth
+}
+
+@(private="file")
 Compiler_DefineVariable :: proc(this: ^Compiler, global: u8) {
+    // If it's not a global variable, we don't need to do anything
+    if this.scopeDepth > 0 {
+        Compiler_MarkVariableInitialized(this)
+        return
+    }
     Compiler_EmitOpAndOperand(this, .DefineGlobal, global)
 }
 
@@ -123,6 +197,21 @@ Compiler_MatchToken :: proc(this: ^Compiler, type: TokenType) -> bool {
 @(private="file")
 Compiler_CheckToken :: proc(this: ^Compiler, type: TokenType) -> bool {
     return this.parser.current.type == type
+}
+
+@(private="file")
+Compiler_BeginScope :: proc(this: ^Compiler) {
+    this.scopeDepth += 1
+}
+
+@(private="file")
+Compiler_EndScope :: proc(this: ^Compiler) {
+    this.scopeDepth -= 1
+    // Remove all local variables from the scope that's closing
+    for len(this.locals) > 0 && peek(&this.locals).depth > this.scopeDepth {
+        Compiler_EmitOp(this, .Pop)
+        pop(&this.locals)
+    }
 }
 
 @(private="file")
@@ -247,12 +336,21 @@ Compiler_CompileRune :: proc(this: ^Compiler, canAssign: bool) {
 
 @(private="file")
 Compiler_CompileNamedVariable :: proc(this: ^Compiler, name: ^Token, canAssign: bool) {
-    arg := Compiler_IdentifierConstant(this, name)
+    getOp, setOp: OpCode
+    arg, found := Compiler_ResolveLocal(this, name)
+    if found {
+        getOp = .GetLocal
+        setOp = .SetLocal
+    } else {
+        arg = Compiler_IdentifierConstant(this, name)
+        getOp = .GetGlobal
+        setOp = .SetGlobal
+    }
 
     if canAssign && Compiler_MatchToken(this, .Equal) {
         Compiler_CompileExpression(this)
-        Compiler_EmitOpAndOperand(this, .SetGlobal, arg)
-    } else do Compiler_EmitOpAndOperand(this, .GetGlobal, arg)
+        Compiler_EmitOpAndOperand(this, setOp, arg)
+    } else do Compiler_EmitOpAndOperand(this, getOp, arg)
 
 }
 
@@ -318,6 +416,12 @@ Compiler_CompileExpression :: proc(this: ^Compiler) {
 }
 
 @(private="file")
+Compiler_CompileBlock :: proc(this: ^Compiler) {
+    for !Compiler_CheckToken(this, .RightBrace) && !Compiler_CheckToken(this, .EOF) do Compiler_CompileDeclaration(this)
+    Compiler_Consume(this, .RightBrace, "Expect '}' after block")
+}
+
+@(private="file")
 Compiler_CompileVarDeclaration :: proc(this: ^Compiler) {
     global := Compiler_ParseVariable(this, "Expect variable name")
 
@@ -338,7 +442,11 @@ Compiler_CompileDeclaration :: proc(this: ^Compiler) {
 @(private="file")
 Compiler_CompileStatement :: proc(this: ^Compiler) {
     if Compiler_MatchToken(this, .Print) do Compiler_CompilePrintStatement(this)
-    else do Compiler_CompileExpressionStatement(this)
+    else if Compiler_MatchToken(this, .LeftBrace) {
+        Compiler_BeginScope(this)
+        Compiler_CompileBlock(this)
+        Compiler_EndScope(this)
+    } else do Compiler_CompileExpressionStatement(this)
 }
 
 @(private="file")
