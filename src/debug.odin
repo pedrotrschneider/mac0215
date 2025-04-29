@@ -29,6 +29,7 @@ OP_NAME := [OpCode]string {
     .Print = "OP_PRINT",
     .Jump = "OP_JUMP",
     .JumpIfFalse = "OP_JUMP_IF_FALSE",
+    .Loop = "OP_LOOP",
     .Return = "OP_RETURN",
 }
 
@@ -47,6 +48,7 @@ Debug_DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
         return SimpleInstruction(op, offset)
     case .GetLocal, .SetLocal: return ByteInstruction(op, chunk, offset)
     case .Jump, .JumpIfFalse: return JumpInstruction(op, 1, chunk, offset)
+    case .Loop: return JumpInstruction(op, -1, chunk, offset)
     case:
         fmt.println("[ERROR] Unknown opcode:", int(op))
         return offset + 1

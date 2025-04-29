@@ -70,6 +70,18 @@ Compiler_Consume :: proc(this: ^Compiler, expected: TokenType, errorMessage: str
 }
 
 @(private="file")
+Compiler_ConsumeOneOf :: proc(this: ^Compiler, expected: []TokenType, errorMessage: string) {
+    // Check if any of the provided token types math the current token
+    for type in expected {
+        if Parser_Current(&this.parser).type == type {
+            Compiler_Advance(this)
+            return
+        }
+    }
+    Parser_ErrorAtCurrent(&this.parser, errorMessage)
+}
+
+@(private="file")
 Compiler_ParsePrecedence :: proc(this: ^Compiler, precedence: Precedence) {
     Compiler_Advance(this)
     previousRule := Compiler_GetRule(Parser_Previous(&this.parser).type)
@@ -497,7 +509,7 @@ Compiler_CompileVarDeclaration :: proc(this: ^Compiler) {
     if Compiler_MatchToken(this, .Equal) do Compiler_CompileExpression(this)
     else do Compiler_EmitOp(this, .Nil)
 
-    Compiler_Consume(this, .Endl, "Expect endline after variable declaration")
+    Compiler_ConsumeOneOf(this, { .Endl, .Semicolon }, "Expect endline or ';' after variable declaration")
     Compiler_DefineVariable(this, u8(variable))
 }
 
@@ -507,6 +519,7 @@ Compiler_CompileVarDeclaration :: proc(this: ^Compiler) {
 Compiler_CompileStatement :: proc(this: ^Compiler) {
     if Compiler_MatchToken(this, .Print) do Compiler_CompilePrintStatement(this)
     else if Compiler_MatchToken(this, .If) do Compiler_CompileIfStatement(this)
+    else if Compiler_MatchToken(this, .For) do Compiler_CompileForStatement2(this)
     else if Compiler_MatchToken(this, .LeftBrace) {
         Compiler_BeginScope(this)
         Compiler_CompileBlock(this)
@@ -535,6 +548,75 @@ Compiler_CompileIfStatement :: proc(this: ^Compiler) {
 
     if Compiler_MatchToken(this, .Else) do Compiler_CompileStatement(this)
     Compiler_PatchJump(this, elseJump)
+}
+
+@(private="file")
+Compiler_CompileForStatement :: proc(this: ^Compiler) {
+    loopStart := len(Compiler_CurrentChunk(this).code)
+    Compiler_CompileExpression(this)
+
+    exitJump := Compiler_EmitJump(this, .JumpIfFalse)
+    Compiler_EmitOp(this, .Pop)
+    Compiler_CompileStatement(this)
+    Compiler_EmitLoop(this, u8(loopStart))
+
+    Compiler_PatchJump(this, exitJump)
+    Compiler_EmitOp(this, .Pop)
+}
+
+@(private="file")
+Compiler_CompileForStatement2 :: proc(this: ^Compiler) {
+    // We begin the scope here to make it so variables created in the
+    // initializer can only be present in the loop's body
+    Compiler_BeginScope(this)
+
+    // Compiling the intializer clause
+    if Compiler_MatchToken(this, .Semicolon) {
+        // No initializer
+    } else if Compiler_CheckTokens(this, { .Colon, .Identifier, .Equal }) {
+        // Variable initialization
+        fmt.println("Variable initialization")
+        Compiler_CompileVarDeclaration(this)
+    } else {
+        // Simple expression
+        Compiler_CompileExpressionStatement(this)
+    }
+
+    loopStart := len(Compiler_CurrentChunk(this).code)
+
+    // Compiling condition clause
+    exitJump := -1
+    if !Compiler_MatchToken(this, .Semicolon) {
+        Compiler_CompileExpression(this)
+        Compiler_Consume(this, .Semicolon, "Expect ';' after loop condition")
+
+        // Jump out of the loop if the condition is false
+        exitJump = Compiler_EmitJump(this, .JumpIfFalse)
+        Compiler_EmitOp(this, .Pop)
+    }
+
+    if !Compiler_CheckToken(this, .LeftBrace) {
+        bodyJump := Compiler_EmitJump(this, .Jump)
+        incrementStart := len(Compiler_CurrentChunk(this).code)
+
+        Compiler_CompileExpression(this)
+        Compiler_EmitOp(this, .Pop)
+
+        Compiler_EmitLoop(this, u8(loopStart))
+        loopStart = incrementStart
+        Compiler_PatchJump(this, bodyJump)
+    }
+
+    Compiler_CompileStatement(this)
+
+    Compiler_EmitLoop(this, u8(loopStart))
+
+    if exitJump != -1 {
+        Compiler_PatchJump(this, exitJump)
+        Compiler_EmitOp(this, .Pop)
+    }
+
+    Compiler_EndScope(this)
 }
 
 // *************** Error handling ***************
@@ -605,4 +687,15 @@ Compiler_PatchJump :: proc(this: ^Compiler, offset: int) {
 
     Compiler_CurrentChunk(this).code[offset + 0] = u8((jump >> 8) & 0xff)
     Compiler_CurrentChunk(this).code[offset + 1] = u8(jump & 0xff)
+}
+
+@(private="file")
+Compiler_EmitLoop :: proc(this: ^Compiler, loopStart: u8) {
+    Compiler_EmitOp(this, .Loop)
+
+    offset := u8(len(Compiler_CurrentChunk(this).code)) - loopStart + 2
+    if u16(offset) > max(u16) do Parser_Error(&this.parser, "Loop body too large")
+
+    Compiler_EmitByte(this, (offset >> 8) & 0xff)
+    Compiler_EmitByte(this, offset & 0xff)
 }

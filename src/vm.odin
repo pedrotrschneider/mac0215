@@ -172,6 +172,10 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             offset := ReadShort(this)
             if Value_IsFalsey(VM_StackPeek(this, 0)) do this.ip += int(offset)
         }
+        case .Loop: {
+            offset := ReadShort(this)
+            this.ip -= int(offset)
+        }
         case .Return: return .Ok
         case: return .CompileError
         }
