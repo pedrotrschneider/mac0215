@@ -2,6 +2,7 @@ package yupii
 
 import "core:fmt"
 import "core:strings"
+import slice "core:slice"
 
 ValueType :: enum  {
     Bool,
@@ -18,6 +19,13 @@ ValueType :: enum  {
 //    Struct,
 }
 
+valueTypeRunes := [ValueType][]rune {
+    .Bool = { 'b', 'o', 'o', 'l' },
+    .Int = { 'i', 'n', 't' },
+    .F64 = { 'f', '6', '4' },
+    .Rune = { 'r', 'u', 'n', 'e' },
+    .String = { 's', 't', 'r', 'i', 'n', 'g' },
+}
 
 Bool :: struct {
     value: bool,
@@ -48,6 +56,24 @@ Value :: struct {
         ^String,
         ^Rune,
     },
+}
+
+Value_GetValueType :: proc(name: []rune) -> (type: ValueType, success: bool) {
+    switch name[0] {
+    case 'b': return Value_CheckValueTypeKeyword(1, name, .Bool)
+    case 'f': return Value_CheckValueTypeKeyword(1, name, .F64)
+    case 'i': return Value_CheckValueTypeKeyword(1, name, .Int)
+    case 's': return Value_CheckValueTypeKeyword(1, name, .String)
+    case 'r': return Value_CheckValueTypeKeyword(1, name, .Rune)
+    }
+    return .Bool, false
+}
+
+@(private="file")
+Value_CheckValueTypeKeyword :: proc(start: int, runes: []rune, valueType: ValueType) -> (ValueType, bool) {
+    typeRunes := valueTypeRunes[valueType]
+    if len(runes) != len(typeRunes) do return valueType, false
+    return valueType, slice.equal(runes[start:], typeRunes[start:])
 }
 
 // *************** Constructors ***************

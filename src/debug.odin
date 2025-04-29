@@ -12,11 +12,11 @@ OP_NAME := [OpCode]string {
     .True = "OP_TRUE",
     .False = "OP_FALSE",
     .Pop = "OP_POP",
-    .GetLocal = "OP_GET_LOCAL",
     .SetLocal = "OP_SET_LOCAL",
-    .GetGlobal = "OP_GET_GLOBAL",
+    .GetLocal = "OP_GET_LOCAL",
     .DefineGlobal = "OP_DEFINE_GLOBAL",
     .SetGlobal = "OP_SET_GLOBAL",
+    .GetGlobal = "OP_GET_GLOBAL",
     .Equal = "OP_EQUAL",
     .Greater = "OP_GREATER",
     .Less = "OP_LESS",
@@ -40,7 +40,7 @@ Debug_DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
 
     op := OpCode(chunk.code[offset])
     switch op {
-    case .Constant, .GetGlobal, .DefineGlobal, .SetGlobal: return ConstantInstruction(op, chunk, offset)
+    case .Constant, .DefineGlobal, .GetGlobal, .SetGlobal: return ConstantInstruction(op, chunk, offset)
     case .Nil, .True, .False, .Equal, .Pop, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Print, .Return:
         return SimpleInstruction(op, offset)
     case .GetLocal, .SetLocal: return ByteInstruction(op, chunk, offset)
@@ -59,9 +59,11 @@ SimpleInstruction :: proc(op: OpCode, offset: int) -> int {
 
 @(private="file")
 ConstantInstruction :: proc(op: OpCode, chunk: ^Chunk, offset: int) -> int {
-    constant := chunk.code[offset + 1]
+    constant := Constant(chunk.code[offset + 1])
     fmt.printf("%-16s %4d \'", OP_NAME[op], constant)
-    Value_Print(Chunk_GetConstantValue(chunk, constant))
+    value, success := Chunk_GetConstantValue(chunk, constant)
+    if !success do panic("Unable to retrieve constant value from chunk")
+    Value_Print(value)
     fmt.println("\'")
     return offset + 2
 }

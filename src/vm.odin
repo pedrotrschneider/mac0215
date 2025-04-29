@@ -57,7 +57,9 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
     }
 
     ReadConstant :: proc(this: ^VM) -> Value {
-        return Chunk_GetConstantValue(this.chunk, ReadByte(this))
+        value, ok := Chunk_GetConstantValue(this.chunk, Constant(ReadByte(this)))
+        if !ok do panic("Unable to read constant value from chunk")
+        return value
     }
 
     ReadString :: proc(this: ^VM) -> ^String {
@@ -187,11 +189,11 @@ VM_REPL :: proc(this: ^VM) {
             fmt.print("> ")
 
             buffer: [1024]byte
-            n, err := os.read(os.stdin, buffer[:])
+            _, err := os.read(os.stdin, buffer[:])
             if err != nil {
                 panic("[ERROR] Failed to read from stdin")
             }
-            line := string(buffer[:n - 1])
+            line := string(buffer[:])
             if len(line) > 0 do VM_Interpret(this, line)
             else do break
         }

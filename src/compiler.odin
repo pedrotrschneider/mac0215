@@ -1,173 +1,157 @@
 package yupii
 
-import "core:strconv"
+import "core:fmt"
 import utf8 "core:unicode/utf8"
-import fmt "core:fmt"
+import strconv "core:strconv"
 import os "core:os"
-import "core:mem"
-import vmem "core:mem/virtual"
 
 // *************** PUBLIC ***************
 
-Local :: struct {
-    name: Token,
-    depth: int,
-}
-
 Compiler :: struct {
-    locals: [dynamic]Local,
-    scopeDepth: int,
-    compilingChunk : ^Chunk,
-    scanner: Scanner,
     parser: Parser,
-
-    compilerArena: vmem.Arena,
-    compilerAllocator: mem.Allocator,
+    compilingChunk: ^Chunk,
+    scopeDepth: int,
 }
 
 Compiler_Init :: proc(this: ^Compiler) {
-    compilerArenaOk: bool
-    this.compilerAllocator, compilerArenaOk = InitGrowingArenaAllocator(&this.compilerArena)
-    if !compilerArenaOk do panic("Unable to create compiler's arena")
-
-    this.locals = make([dynamic]Local, 0, int(max(u8)) + 1, this.compilerAllocator)
-    this.scopeDepth = 0
-
     Parser_Init(&this.parser)
+
+    this.scopeDepth = 0
 }
 
 Compiler_Free :: proc(this: ^Compiler) {
-    vmem.arena_destroy(&this.compilerArena)
+    Parser_Free(&this.parser)
 }
 
 Compiler_Compile :: proc(this: ^Compiler, source: string, chunk: ^Chunk) -> bool {
-    Scanner_Init(&this.scanner, source)
-    defer Scanner_Free(&this.scanner)
-
     this.compilingChunk = chunk
 
-    Compiler_Advance(this)
+    lexer: Lexer
+    Lexer_Init(&lexer, source)
+    defer Lexer_Free(&lexer)
+
+    Lexer_PopulateParser(&lexer, &this.parser)
+//    for &token in this.parser.tokens {
+//        Token_Display(&token)
+//        fmt.println()
+//    }
+//    fmt.println()
 
     for !Compiler_MatchToken(this, .EOF) {
         Compiler_CompileDeclaration(this)
     }
 
     Compiler_End(this)
-
     return !this.parser.hadError
+}
+
+Compiler_CurrentChunk :: proc(this: ^Compiler) -> ^Chunk {
+    return this.compilingChunk
 }
 
 // *************** PRIVATE ***************
 
-// *************** Core functions ***************
+// *************** Core procedures ***************
 
 @(private="file")
 Compiler_Advance :: proc(this: ^Compiler) {
-    this.parser.previous = this.parser.current
+    Parser_Swap(&this.parser)
 
     for {
-        this.parser.current = Scanner_ScanToken(&this.scanner)
-        if this.parser.current.type != .Error do break
+        Parser_Advance(&this.parser)
+        current := Parser_Current(&this.parser)
+        if current.type != .Error do break
 
-        current := this.parser.current
-        errorMessage, shouldFree := Token_GetSourceString(&current)
-        defer if shouldFree do delete(errorMessage)
+        // Error handling
+        errorMessage, ok := Token_GetErrorMessage(&current)
+        if !ok do panic("Unable to get error message from error token")
         Parser_ErrorAtCurrent(&this.parser, errorMessage)
     }
 }
 
 @(private="file")
-Compiler_Consume :: proc(this: ^Compiler, type: TokenType, message: string) {
-    if this.parser.current.type != type do Parser_ErrorAtCurrent(&this.parser, message)
+Compiler_Consume :: proc(this: ^Compiler, expected: TokenType, errorMessage: string) {
+    if Parser_Current(&this.parser).type != expected do Parser_ErrorAtCurrent(&this.parser, errorMessage)
     Compiler_Advance(this)
 }
 
 @(private="file")
 Compiler_ParsePrecedence :: proc(this: ^Compiler, precedence: Precedence) {
     Compiler_Advance(this)
-    prefixRule := Compiler_GetRule(this.parser.previous.type).prefix
-    if prefixRule == nil {
+    previousRule := Compiler_GetRule(Parser_Previous(&this.parser).type)
+    if previousRule.prefix == nil {
         Parser_Error(&this.parser, "Expected expression")
         return
     }
 
     canAssign := precedence <= .Assignment
-    prefixRule(this, canAssign)
+    previousRule.prefix(this, canAssign)
 
-    for precedence <= Compiler_GetRule(this.parser.current.type).precedence {
+    for Compiler_GetRule(Parser_Current(&this.parser).type).precedence >= precedence {
         Compiler_Advance(this)
-        infix_rule := Compiler_GetRule(this.parser.previous.type).infix
-        infix_rule(this, canAssign)
+        previousRule = Compiler_GetRule(Parser_Previous(&this.parser).type)
+        previousRule.infix(this, canAssign)
     }
 }
 
 @(private="file")
-Compiler_IdentifierConstant :: proc(this: ^Compiler, name: ^Token) -> u8 {
-    nameRunes := name.source.([]rune)[name.start:name.start + name.length]
-    str := Chunk_AllocateStringFromRunes(this.compilingChunk, nameRunes)
+Compiler_MakeIdentifierConstant :: proc(this: ^Compiler, name: ^Token) -> Constant {
+    nameRunes, ok := Token_GetSource(name)
+    if !ok do panic("Unable to get runes from token")
+
+    str := Chunk_AllocateStringFromRunes(Compiler_CurrentChunk(this), nameRunes)
     return Compiler_MakeConstant(this, Value_String(str))
 }
 
 @(private="file")
 Compiler_ResolveLocal :: proc(this: ^Compiler, name: ^Token) -> (u8, bool) {
-    for &local, i in this.locals {
-        if IdentifiersEqual(name, &local.name) {
-            // If local.depth == -1 this means the variable has been declared but not defined yet.
-            // If that's the case, the user is likely trying to do something like this: a := a
-            if local.depth == -1 do Parser_Error(&this.parser, "Can't read local variable in its own initializer")
-            return u8(i), true
-        }
-    }
-    return 0, false
+    local, depth, found := Chunk_ResolveLocal(Compiler_CurrentChunk(this), name)
+    if !found do return 0, false
+    // If local.depth == -1 this means the variable has been declared but not defined yet.
+    // If that's the case, the user is likely trying to do something like this: a := a
+    if depth == -1 do Parser_Error(&this.parser, "Can't read local variable in its own initializer")
+    return local, found
 }
 
 @(private="file")
 Compiler_AddLocal :: proc(this: ^Compiler, name: Token) {
-    if len(this.locals) > 255 {
-        Parser_Error(&this.parser, "Too many local variables in scope.")
-        return
+    if Chunk_AddLocal(this.compilingChunk, name) > 255 {
+        Parser_Error(&this.parser, "Too many local variables in scope")
     }
-    append(&this.locals, Local { name, -1 })
 }
 
 @(private="file")
 Compiler_DeclareVariable :: proc(this: ^Compiler) {
-    if this.scopeDepth == 0 do return // If it's a global variable, we don't need to do anything
+    if this.scopeDepth == 0 do return // If it's a global variable, we do nothing
 
-    name := &this.parser.previous
-    // Check if a variable with this name already exists in the current scope
-    #reverse for &local in this.locals {
-        if local.depth < this.scopeDepth do break
-        if IdentifiersEqual(name, &local.name) {
-            Parser_Error(&this.parser, "A variable with this name already existis in the current scope")
-        }
+    name := Parser_Previous(&this.parser)
+    if Chunk_HasLocal(this.compilingChunk, &name, this.scopeDepth) {
+        Parser_Error(&this.parser, "A variable with this name already exists")
     }
-    Compiler_AddLocal(this, name^)
+    Compiler_AddLocal(this, name)
 }
 
 @(private="file")
-Compiler_ParseVariable :: proc(this: ^Compiler, errorMessage: string) -> u8 {
+Compiler_ParseVariable :: proc(this: ^Compiler, errorMessage: string) -> Constant {
     Compiler_Consume(this, .Identifier, errorMessage)
-
     Compiler_DeclareVariable(this)
     if this.scopeDepth > 0 do return 0
-
-    return Compiler_IdentifierConstant(this, &this.parser.previous)
+    previous := Parser_Previous(&this.parser)
+    return Compiler_MakeIdentifierConstant(this, &previous)
 }
 
 @(private="file")
 Compiler_MarkVariableInitialized :: proc(this: ^Compiler) {
-    this.locals[len(this.locals) - 1].depth = this.scopeDepth
+    Chunk_MarkLocalInitialized(this.compilingChunk, this.scopeDepth)
 }
 
 @(private="file")
-Compiler_DefineVariable :: proc(this: ^Compiler, global: u8) {
-    // If it's not a global variable, we don't need to do anything
+Compiler_DefineVariable :: proc(this: ^Compiler, index: u8) {
     if this.scopeDepth > 0 {
         Compiler_MarkVariableInitialized(this)
         return
     }
-    Compiler_EmitOpAndOperand(this, .DefineGlobal, global)
+    Compiler_EmitOpAndOperand(this, .DefineGlobal, index)
 }
 
 // *************** Utils ***************
@@ -178,13 +162,13 @@ Compiler_CurrentChunk :: proc(this: ^Compiler) -> ^Chunk {
 }
 
 @(private="file")
-Compiler_MakeConstant :: proc(this: ^Compiler, value: Value) -> u8 {
+Compiler_MakeConstant :: proc(this: ^Compiler, value: Value) -> Constant {
     constant := Chunk_AddConstant(Compiler_CurrentChunk(this), value)
-    if constant > int(max(u8)) {
-        Parser_Error(&this.parser, "Too many constants in on chunk")
-        return 0
+    if constant > Constant(max(u8)) {
+        Parser_Error(&this.parser, "Too many constants in one chunk")
+        return Constant(0)
     }
-    return u8(constant)
+    return Constant(constant)
 }
 
 @(private="file")
@@ -195,8 +179,19 @@ Compiler_MatchToken :: proc(this: ^Compiler, type: TokenType) -> bool {
 }
 
 @(private="file")
+Compiler_CheckTokens :: proc(this: ^Compiler, tokens: []TokenType) -> bool {
+    if Parser_RemainingTokens(&this.parser) < len(tokens) do return false
+    depth := 1
+    for token in tokens{
+        if Parser_Peek(&this.parser, depth).type != token do return false
+        depth += 1
+    }
+    return true
+}
+
+@(private="file")
 Compiler_CheckToken :: proc(this: ^Compiler, type: TokenType) -> bool {
-    return this.parser.current.type == type
+    return Parser_Current(&this.parser).type == type
 }
 
 @(private="file")
@@ -207,10 +202,9 @@ Compiler_BeginScope :: proc(this: ^Compiler) {
 @(private="file")
 Compiler_EndScope :: proc(this: ^Compiler) {
     this.scopeDepth -= 1
-    // Remove all local variables from the scope that's closing
-    for len(this.locals) > 0 && peek(&this.locals).depth > this.scopeDepth {
+    count := Chunk_RemoveLocalsFromScope(Compiler_CurrentChunk(this), this.scopeDepth)
+    for i := 0; i < count; i += 1 {
         Compiler_EmitOp(this, .Pop)
-        pop(&this.locals)
     }
 }
 
@@ -258,9 +252,11 @@ rules : [TokenType]ParseRule = {
     .Minus = { Compiler_CompileUnary, Compiler_CompileBinary, .Term },
     .Plus = { nil, Compiler_CompileBinary, .Term },
     .Colon = { nil, nil, .None },
+    .ColonColon = { nil, nil, .None },
     .Semicolon = { nil, nil, .None },
     .Slash = { nil, Compiler_CompileBinary, .Factor },
     .Star = { nil, Compiler_CompileBinary, .Factor },
+    .Endl = { nil, nil, .None },
     .Bang = { Compiler_CompileUnary, nil, .None },
     .BangEqual = { nil, Compiler_CompileBinary, .Equality },
     .Equal = { nil, nil, .None },
@@ -271,8 +267,8 @@ rules : [TokenType]ParseRule = {
     .LessEqual = { nil, Compiler_CompileBinary, .Comparison },
     .ArrowRight = { nil, nil, .None },
     .Identifier = { Compiler_CompileVariable, nil, .None },
-    .TypeId = { nil, nil, .None },
-    .NumericLiteral = { Compiler_CompileNumeric, nil, .None },
+    .IntegerLiteral = { Compiler_CompileNumeric, nil, .None },
+    .FloatLiteral = { Compiler_CompileNumeric, nil, .None },
     .StringLiteral = { Compiler_CompileString, nil, .None },
     .RuneLiteral = { Compiler_CompileRune, nil, .None },
     .And = { nil, nil, .None },
@@ -284,7 +280,6 @@ rules : [TokenType]ParseRule = {
     .Nil = { Compiler_CompileLiteral, nil, .None },
     .Or = { nil, nil, .None },
     .Print = { nil, nil, .None },
-    .Var = { nil, nil, .None },
     .Proc = { nil, nil, .None },
     .Struct = { nil, nil, .None },
     .Distinct = { nil, nil, .None },
@@ -302,13 +297,33 @@ Compiler_GetRule :: proc(type: TokenType) -> ^ParseRule {
 // *************** Expression compilation helpers ***************
 
 @(private="file")
+Compiler_CompileExpression :: proc(this: ^Compiler) {
+    Compiler_ParsePrecedence(this, .Assignment)
+}
+
+// *************** Literals ***************
+
+@(private="file")
+Compiler_CompileLiteral :: proc(this: ^Compiler, canAssign: bool) {
+    #partial switch Parser_Previous(&this.parser).type {
+    case .False: Compiler_EmitOp(this, .False)
+    case .True: Compiler_EmitOp(this, .True)
+    //    case .Nil: Compiler_EmitOp(this, .Nil)
+    case: return
+    }
+}
+
+@(private="file")
 Compiler_CompileNumeric :: proc(this: ^Compiler, canAssign: bool) {
-    previous := this.parser.previous
-    numberStr := utf8.runes_to_string(previous.source.([]rune)[previous.start:previous.start + previous.length])
+    previous := Parser_Previous(&this.parser)
+    previousRunes, ok := Token_GetSource(&previous)
+    if !ok do panic("Failed to get source from token")
+
+    numberStr := utf8.runes_to_string(previousRunes)
     defer delete(numberStr)
 
-    number, ok := strconv.parse_f64(numberStr)
-    if !ok {
+    number, parseOk := strconv.parse_f64(numberStr)
+    if !parseOk {
         fmt.fprintln(os.stderr, "[ERROR] Unable to convert", numberStr, "to number")
         panic("Exiting...")
     }
@@ -319,19 +334,46 @@ Compiler_CompileNumeric :: proc(this: ^Compiler, canAssign: bool) {
 
 @(private="file")
 Compiler_CompileString :: proc(this: ^Compiler, canAssign: bool) {
-    start := this.parser.previous.start + 1 // Skip the "
-    end := start + this.parser.previous.length - 2 // Remove the final "
-    str := Chunk_AllocateStringFromRunes(this.compilingChunk, this.parser.previous.source.([]rune)[start:end])
+    previous := Parser_Previous(&this.parser)
+    previousRunes, ok := Token_GetSource(&previous)
+    if !ok do panic("Failed to get source from token")
+    // The range on the runes is to exclude quotation marks from the begining and the end
+    str := Chunk_AllocateStringFromRunes(this.compilingChunk, previousRunes[1:len(previousRunes) - 2])
     constant := Compiler_MakeConstant(this, Value_String(str))
     Compiler_EmitConstant(this, constant)
 }
 
 @(private="file")
 Compiler_CompileRune :: proc(this: ^Compiler, canAssign: bool) {
-    start := this.parser.previous.start + 1 // Skip the '
-    r := Chunk_AllocateRune(this.compilingChunk, this.parser.previous.source.([]rune)[start])
+    previous := Parser_Previous(&this.parser)
+    previousRunes, ok := Token_GetSource(&previous)
+    if !ok do panic("Failed to get source from token")
+    // The range on the runes is to exclude quotation marks from the begining and the end
+    r := Chunk_AllocateRune(this.compilingChunk, previousRunes[1])
     constant := Compiler_MakeConstant(this, Value_Rune(r))
     Compiler_EmitConstant(this, constant)
+}
+
+@(private="file")
+Compiler_CompileTypeIdentifier :: proc(this: ^Compiler) -> ValueType {
+    current := Parser_Current(&this.parser)
+    currentRunes, ok := Token_GetSource(&current)
+    if !ok do panic("Unable to get runes from token")
+
+    valueType, success := Value_GetValueType(currentRunes)
+    if !success {
+        Parser_Error(&this.parser, "Invalid type name")
+    }
+    Compiler_Consume(this, .Identifier, "Expected type identifier after variable declaration")
+    return valueType
+}
+
+// *************** Variables ***************
+
+@(private="file")
+Compiler_CompileVariable :: proc(this: ^Compiler, canAssign: bool) {
+    previous := Parser_Previous(&this.parser)
+    Compiler_CompileNamedVariable(this, &previous, canAssign)
 }
 
 @(private="file")
@@ -342,7 +384,7 @@ Compiler_CompileNamedVariable :: proc(this: ^Compiler, name: ^Token, canAssign: 
         getOp = .GetLocal
         setOp = .SetLocal
     } else {
-        arg = Compiler_IdentifierConstant(this, name)
+        arg = u8(Compiler_MakeIdentifierConstant(this, name))
         getOp = .GetGlobal
         setOp = .SetGlobal
     }
@@ -354,10 +396,7 @@ Compiler_CompileNamedVariable :: proc(this: ^Compiler, name: ^Token, canAssign: 
 
 }
 
-@(private="file")
-Compiler_CompileVariable :: proc(this: ^Compiler, canAssign: bool) {
-    Compiler_CompileNamedVariable(this, &this.parser.previous, canAssign)
-}
+// *************** Operators ***************
 
 @(private="file")
 Compiler_CompileGrouping :: proc(this: ^Compiler, canAssign: bool) {
@@ -366,8 +405,14 @@ Compiler_CompileGrouping :: proc(this: ^Compiler, canAssign: bool) {
 }
 
 @(private="file")
+Compiler_CompileBlock :: proc(this: ^Compiler) {
+    for !Compiler_CheckToken(this, .RightBrace) && !Compiler_CheckToken(this, .EOF) do Compiler_CompileDeclaration(this)
+    Compiler_Consume(this, .RightBrace, "Expect '}' after block")
+}
+
+@(private="file")
 Compiler_CompileUnary :: proc(this: ^Compiler, canAssign: bool) {
-    operatorType := this.parser.previous.type
+    operatorType := Parser_Previous(&this.parser).type
 
     // Compile the operand
     Compiler_ParsePrecedence(this, .Unary)
@@ -381,7 +426,7 @@ Compiler_CompileUnary :: proc(this: ^Compiler, canAssign: bool) {
 
 @(private="file")
 Compiler_CompileBinary :: proc(this: ^Compiler, canAssign: bool) {
-    operatorType := this.parser.previous.type
+    operatorType := Parser_Previous(&this.parser).type
     rule := Compiler_GetRule(operatorType)
     Compiler_ParsePrecedence(this, Precedence(int(rule.precedence) + 1))
 
@@ -400,44 +445,35 @@ Compiler_CompileBinary :: proc(this: ^Compiler, canAssign: bool) {
     }
 }
 
-@(private="file")
-Compiler_CompileLiteral :: proc(this: ^Compiler, canAssign: bool) {
-    #partial switch this.parser.previous.type {
-    case .False: Compiler_EmitOp(this, .False)
-    case .True: Compiler_EmitOp(this, .True)
-    //    case .Nil: Compiler_EmitOp(this, .Nil)
-    case: return
-    }
-}
+// *************** Declarations ***************
 
 @(private="file")
-Compiler_CompileExpression :: proc(this: ^Compiler) {
-    Compiler_ParsePrecedence(this, .Assignment)
-}
+Compiler_CompileDeclaration :: proc(this: ^Compiler) {
+    if Compiler_MatchToken(this, .Endl) do return
 
-@(private="file")
-Compiler_CompileBlock :: proc(this: ^Compiler) {
-    for !Compiler_CheckToken(this, .RightBrace) && !Compiler_CheckToken(this, .EOF) do Compiler_CompileDeclaration(this)
-    Compiler_Consume(this, .RightBrace, "Expect '}' after block")
+    if Compiler_CheckTokens(this, { .Colon, .Identifier, .Equal }) do Compiler_CompileVarDeclaration(this)
+    else do Compiler_CompileStatement(this)
+    if (this.parser.panicMode) do Compiler_Synchronize(this)
 }
 
 @(private="file")
 Compiler_CompileVarDeclaration :: proc(this: ^Compiler) {
-    global := Compiler_ParseVariable(this, "Expect variable name")
+    variable := Compiler_ParseVariable(this, "Expect variable name")
+
+    Compiler_Consume(this, .Colon, "Expected ':' and type identifier after variable declaration")
+    valueType := Compiler_CompileTypeIdentifier(this)
+    if this.scopeDepth > 0 {
+        Chunk_SetLocalType(Compiler_CurrentChunk(this), valueType)
+    }
 
     if Compiler_MatchToken(this, .Equal) do Compiler_CompileExpression(this)
     else do Compiler_EmitOp(this, .Nil)
 
-    Compiler_Consume(this, .Semicolon, "Expect ';' after variable declaration")
-    Compiler_DefineVariable(this, global)
+    Compiler_Consume(this, .Endl, "Expect endline after variable declaration")
+    Compiler_DefineVariable(this, u8(variable))
 }
 
-@(private="file")
-Compiler_CompileDeclaration :: proc(this: ^Compiler) {
-    if Compiler_MatchToken(this, .Var) do Compiler_CompileVarDeclaration(this)
-    else do Compiler_CompileStatement(this)
-    if (this.parser.panicMode) do Compiler_Synchronize(this)
-}
+// *************** Statements ***************
 
 @(private="file")
 Compiler_CompileStatement :: proc(this: ^Compiler) {
@@ -452,14 +488,14 @@ Compiler_CompileStatement :: proc(this: ^Compiler) {
 @(private="file")
 Compiler_CompileExpressionStatement :: proc(this: ^Compiler) {
     Compiler_CompileExpression(this)
-    Compiler_Consume(this, .Semicolon, "Expect ';' after expression")
+    Compiler_Consume(this, .Endl, "Expect endline after expression")
     Compiler_EmitOp(this, .Pop)
 }
 
 @(private="file")
 Compiler_CompilePrintStatement :: proc(this: ^Compiler) {
     Compiler_CompileExpression(this)
-    Compiler_Consume(this, .Semicolon, "Expect ';' after value.")
+    Compiler_Consume(this, .Endl, "Expect endline after value.")
     Compiler_EmitOp(this, .Print)
 }
 
@@ -469,10 +505,10 @@ Compiler_CompilePrintStatement :: proc(this: ^Compiler) {
 Compiler_Synchronize :: proc(this: ^Compiler) {
     this.parser.panicMode = false
 
-    for this.parser.current.type != .EOF {
-        if this.parser.previous.type == .Semicolon do return
-        #partial switch this.parser.current.type {
-        case .If, .Else, .For, .Defer, .Print, .Var, .Proc, .Struct, .Distinct, .Return: return
+    for Parser_Current(&this.parser).type != .EOF {
+        if Parser_Previous(&this.parser).type == .Semicolon do return
+        #partial switch Parser_Current(&this.parser).type {
+        case .If, .Else, .For, .Defer, .Print, .Proc, .Struct, .Distinct, .Return: return
         case: {
         } // Do nothing otherwise
         }
@@ -483,12 +519,12 @@ Compiler_Synchronize :: proc(this: ^Compiler) {
 
 @(private="file")
 Compiler_EmitByte :: proc(this: ^Compiler, byte: u8) {
-    Chunk_Write(Compiler_CurrentChunk(this), byte, this.parser.previous.line)
+    Chunk_Write(Compiler_CurrentChunk(this), byte, Parser_Previous(&this.parser).line)
 }
 
 @(private="file")
 Compiler_EmitOp :: proc(this: ^Compiler, op: OpCode) {
-    Chunk_WriteOp(Compiler_CurrentChunk(this), op, this.parser.previous.line)
+    Chunk_WriteOp(Compiler_CurrentChunk(this), op, Parser_Previous(&this.parser).line)
 }
 
 @(private="file")
@@ -510,6 +546,6 @@ Compiler_EmitReturn :: proc(this: ^Compiler) {
 }
 
 @(private="file")
-Compiler_EmitConstant :: proc(this: ^Compiler, constant: u8) {
-    Compiler_EmitOpAndOperand(this, .Constant, constant)
+Compiler_EmitConstant :: proc(this: ^Compiler, constant: Constant) {
+    Compiler_EmitOpAndOperand(this, .Constant, u8(constant))
 }
