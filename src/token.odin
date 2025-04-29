@@ -58,6 +58,17 @@ Token_GetSource :: proc(this: ^Token) -> (runes: []rune, success: bool) {
     return this.source.([]rune)
 }
 
+Token_TypeFromValueType :: proc(valueType: ValueType) -> TokenType {
+    switch valueType {
+    case .Int: return .IntegerLiteral
+    case .F64: return .FloatLiteral
+    case .String: return .StringLiteral
+    case .Rune: return .RuneLiteral
+    case .Bool: return .True
+    }
+    return .IntegerLiteral
+}
+
 Token_Display :: proc(this: ^Token) {
     fmt.printf("[%d:%d] ", this.line, this.col)
     fmt.print(this.type, ": ", sep="")

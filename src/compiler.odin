@@ -31,12 +31,6 @@ Compiler_Compile :: proc(this: ^Compiler, source: string, chunk: ^Chunk) -> bool
     defer Lexer_Free(&lexer)
 
     Lexer_PopulateParser(&lexer, &this.parser)
-//    for &token in this.parser.tokens {
-//        Token_Display(&token)
-//        fmt.println()
-//    }
-//    fmt.println()
-
     for !Compiler_MatchToken(this, .EOF) {
         Compiler_CompileDeclaration(this)
     }
@@ -182,7 +176,7 @@ Compiler_MatchToken :: proc(this: ^Compiler, type: TokenType) -> bool {
 Compiler_CheckTokens :: proc(this: ^Compiler, tokens: []TokenType) -> bool {
     if Parser_RemainingTokens(&this.parser) < len(tokens) do return false
     depth := 1
-    for token in tokens{
+    for token in tokens {
         if Parser_Peek(&this.parser, depth).type != token do return false
         depth += 1
     }
@@ -271,14 +265,14 @@ rules : [TokenType]ParseRule = {
     .FloatLiteral = { Compiler_CompileNumeric, nil, .None },
     .StringLiteral = { Compiler_CompileString, nil, .None },
     .RuneLiteral = { Compiler_CompileRune, nil, .None },
-    .And = { nil, nil, .None },
+    .And = { nil, Compiler_CompileAnd, .And },
     .Else = { nil, nil, .None },
     .False = { Compiler_CompileLiteral, nil, .None },
     .For = { nil, nil, .None },
     .Defer = { nil, nil, .None },
     .If = { nil, nil, .None },
     .Nil = { Compiler_CompileLiteral, nil, .None },
-    .Or = { nil, nil, .None },
+    .Or = { nil, Compiler_CompileOr, .Or },
     .Print = { nil, nil, .None },
     .Proc = { nil, nil, .None },
     .Struct = { nil, nil, .None },
@@ -299,6 +293,13 @@ Compiler_GetRule :: proc(type: TokenType) -> ^ParseRule {
 @(private="file")
 Compiler_CompileExpression :: proc(this: ^Compiler) {
     Compiler_ParsePrecedence(this, .Assignment)
+}
+
+@(private="file")
+Compiler_CompileExpressionStatement :: proc(this: ^Compiler) {
+    Compiler_CompileExpression(this)
+    Compiler_Consume(this, .Endl, "Expect endline after expression")
+    Compiler_EmitOp(this, .Pop)
 }
 
 // *************** Literals ***************
@@ -338,7 +339,7 @@ Compiler_CompileString :: proc(this: ^Compiler, canAssign: bool) {
     previousRunes, ok := Token_GetSource(&previous)
     if !ok do panic("Failed to get source from token")
     // The range on the runes is to exclude quotation marks from the begining and the end
-    str := Chunk_AllocateStringFromRunes(this.compilingChunk, previousRunes[1:len(previousRunes) - 2])
+    str := Chunk_AllocateStringFromRunes(this.compilingChunk, previousRunes[1:len(previousRunes) - 1])
     constant := Compiler_MakeConstant(this, Value_String(str))
     Compiler_EmitConstant(this, constant)
 }
@@ -406,7 +407,9 @@ Compiler_CompileGrouping :: proc(this: ^Compiler, canAssign: bool) {
 
 @(private="file")
 Compiler_CompileBlock :: proc(this: ^Compiler) {
-    for !Compiler_CheckToken(this, .RightBrace) && !Compiler_CheckToken(this, .EOF) do Compiler_CompileDeclaration(this)
+    for !Compiler_CheckToken(this, .RightBrace) && !Compiler_CheckToken(this, .EOF) {
+        Compiler_CompileDeclaration(this)
+    }
     Compiler_Consume(this, .RightBrace, "Expect '}' after block")
 }
 
@@ -445,6 +448,26 @@ Compiler_CompileBinary :: proc(this: ^Compiler, canAssign: bool) {
     }
 }
 
+@(private="file")
+Compiler_CompileAnd :: proc(this: ^Compiler, canAssign: bool) {
+    endJump := Compiler_EmitJump(this, .JumpIfFalse)
+    Compiler_EmitOp(this, .Pop)
+    Compiler_ParsePrecedence(this, .And)
+    Compiler_PatchJump(this, endJump)
+}
+
+@(private="file")
+Compiler_CompileOr :: proc(this: ^Compiler, canAssign: bool) {
+    elseJump := Compiler_EmitJump(this, .JumpIfFalse)
+    endJump := Compiler_EmitJump(this, .Jump)
+
+    Compiler_PatchJump(this, elseJump)
+    Compiler_EmitOp(this, .Pop)
+
+    Compiler_ParsePrecedence(this, .Or)
+    Compiler_PatchJump(this, endJump)
+}
+
 // *************** Declarations ***************
 
 @(private="file")
@@ -462,6 +485,11 @@ Compiler_CompileVarDeclaration :: proc(this: ^Compiler) {
 
     Compiler_Consume(this, .Colon, "Expected ':' and type identifier after variable declaration")
     valueType := Compiler_CompileTypeIdentifier(this)
+
+    // Todo: this breaks with bool. Fix it
+//    if !Compiler_CheckToken(this, Token_TypeFromValueType(valueType)) {
+//        Parser_Error(&this.parser, "Type mismatch in variable declaration")
+//    }
     if this.scopeDepth > 0 {
         Chunk_SetLocalType(Compiler_CurrentChunk(this), valueType)
     }
@@ -478,6 +506,7 @@ Compiler_CompileVarDeclaration :: proc(this: ^Compiler) {
 @(private="file")
 Compiler_CompileStatement :: proc(this: ^Compiler) {
     if Compiler_MatchToken(this, .Print) do Compiler_CompilePrintStatement(this)
+    else if Compiler_MatchToken(this, .If) do Compiler_CompileIfStatement(this)
     else if Compiler_MatchToken(this, .LeftBrace) {
         Compiler_BeginScope(this)
         Compiler_CompileBlock(this)
@@ -486,17 +515,26 @@ Compiler_CompileStatement :: proc(this: ^Compiler) {
 }
 
 @(private="file")
-Compiler_CompileExpressionStatement :: proc(this: ^Compiler) {
-    Compiler_CompileExpression(this)
-    Compiler_Consume(this, .Endl, "Expect endline after expression")
-    Compiler_EmitOp(this, .Pop)
-}
-
-@(private="file")
 Compiler_CompilePrintStatement :: proc(this: ^Compiler) {
     Compiler_CompileExpression(this)
     Compiler_Consume(this, .Endl, "Expect endline after value.")
     Compiler_EmitOp(this, .Print)
+}
+
+@(private="file")
+Compiler_CompileIfStatement :: proc(this: ^Compiler) {
+    Compiler_CompileExpression(this)
+
+    thenJump := Compiler_EmitJump(this, .JumpIfFalse)
+    Compiler_EmitOp(this, .Pop)
+    Compiler_CompileStatement(this)
+    elseJump := Compiler_EmitJump(this, .Jump)
+
+    Compiler_PatchJump(this, thenJump)
+    Compiler_EmitOp(this, .Pop)
+
+    if Compiler_MatchToken(this, .Else) do Compiler_CompileStatement(this)
+    Compiler_PatchJump(this, elseJump)
 }
 
 // *************** Error handling ***************
@@ -548,4 +586,23 @@ Compiler_EmitReturn :: proc(this: ^Compiler) {
 @(private="file")
 Compiler_EmitConstant :: proc(this: ^Compiler, constant: Constant) {
     Compiler_EmitOpAndOperand(this, .Constant, u8(constant))
+}
+
+@(private="file")
+Compiler_EmitJump :: proc(this: ^Compiler, op: OpCode) -> int {
+    Compiler_EmitOp(this, op)
+    Compiler_EmitByte(this, 0xff)
+    Compiler_EmitByte(this, 0xff)
+    return len(Compiler_CurrentChunk(this).code) - 2
+}
+
+@(private="file")
+Compiler_PatchJump :: proc(this: ^Compiler, offset: int) {
+// -2 to adjust for the bytecode for the jump offset itself
+    jump := len(Compiler_CurrentChunk(this).code) - offset - 2
+
+    if u16(jump) > max(u16) do Parser_Error(&this.parser, "Too much code to jump over")
+
+    Compiler_CurrentChunk(this).code[offset + 0] = u8((jump >> 8) & 0xff)
+    Compiler_CurrentChunk(this).code[offset + 1] = u8(jump & 0xff)
 }

@@ -1,7 +1,2 @@
-g: int = 1
-{
-	print g
-	a: int = 1
-	b: int = 2
-	print a + b
-}
+a: bool = false or true
+print a

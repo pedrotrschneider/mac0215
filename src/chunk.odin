@@ -62,6 +62,8 @@ OpCode :: enum u8 {
     Not,
     Negate,
     Print,
+    Jump,
+    JumpIfFalse,
     Return,
 }
 
@@ -77,6 +79,7 @@ Chunk :: struct {
     code: [dynamic]u8,
     lines: [dynamic]int,
     constants: [dynamic]Value,
+    // Todo: Move locals to the VM
     locals: [dynamic]Local,
 
     arena: vmem.Arena,

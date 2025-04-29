@@ -9,6 +9,7 @@ VM :: struct {
     chunk: ^Chunk,
     ip: int, // instruction pointer
     stack: [dynamic]Value,
+    // Todo: Globals suck. Fix them. They should work simmilarly to locals
     globals: map[string]Value,
 
     vmArena: vmem.Arena,
@@ -50,6 +51,11 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
     ReadByte :: proc(this: ^VM) -> u8 {
         defer this.ip += 1
         return this.chunk.code[this.ip]
+    }
+
+    ReadShort :: proc(this: ^VM) -> u16 {
+        defer this.ip += 2
+        return u16(this.chunk.code[this.ip] << 8) | u16(this.chunk.code[this.ip + 1])
     }
 
     ReadOp :: proc(this: ^VM) -> OpCode {
@@ -104,7 +110,8 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
         op := ReadOp(this)
         switch op {
         case .Constant: VM_StackPush(this, ReadConstant(this))
-        case .Nil: {} //VM_StackPush(this, Value_Nil())
+        case .Nil: {
+        } //VM_StackPush(this, Value_Nil())
         case .True: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, true)))
         case .False: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, false)))
         case .Pop: VM_StackPop(this)
@@ -157,6 +164,14 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             VM_StackPop(this)
         }
         case .Print: Value_Println(VM_StackPop(this))
+        case .Jump: {
+            offset := ReadShort(this)
+            this.ip += int(offset)
+        }
+        case .JumpIfFalse: {
+            offset := ReadShort(this)
+            if Value_IsFalsey(VM_StackPeek(this, 0)) do this.ip += int(offset)
+        }
         case .Return: return .Ok
         case: return .CompileError
         }

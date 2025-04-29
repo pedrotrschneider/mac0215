@@ -27,6 +27,8 @@ OP_NAME := [OpCode]string {
     .Not = "OP_NOT",
     .Negate = "OP_NEGATE",
     .Print = "OP_PRINT",
+    .Jump = "OP_JUMP",
+    .JumpIfFalse = "OP_JUMP_IF_FALSE",
     .Return = "OP_RETURN",
 }
 
@@ -44,6 +46,7 @@ Debug_DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
     case .Nil, .True, .False, .Equal, .Pop, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Print, .Return:
         return SimpleInstruction(op, offset)
     case .GetLocal, .SetLocal: return ByteInstruction(op, chunk, offset)
+    case .Jump, .JumpIfFalse: return JumpInstruction(op, 1, chunk, offset)
     case:
         fmt.println("[ERROR] Unknown opcode:", int(op))
         return offset + 1
@@ -69,8 +72,16 @@ ConstantInstruction :: proc(op: OpCode, chunk: ^Chunk, offset: int) -> int {
 }
 
 @(private="file")
-ByteInstruction :: proc (op: OpCode, chunk: ^Chunk, offset: int) -> int {
-    slot := chunk.code[offset+1]
+ByteInstruction :: proc(op: OpCode, chunk: ^Chunk, offset: int) -> int {
+    slot := chunk.code[offset + 1]
     fmt.printfln("%-16s %4d", OP_NAME[op], slot)
     return offset + 2
+}
+
+@(private="file")
+JumpInstruction :: proc(op: OpCode, sign: int, chunk: ^Chunk, offset: int) -> int {
+    jump := u16(chunk.code[offset + 1] << 8)
+    jump |= u16(chunk.code[offset + 2])
+    fmt.printf("%-16s %4d -> %d\n", OP_NAME[op], offset, offset + 3 + sign * int(jump))
+    return offset + 3
 }
