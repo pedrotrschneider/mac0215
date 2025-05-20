@@ -65,6 +65,7 @@ OpCode :: enum u8 {
     Jump,
     JumpIfFalse,
     Loop,
+    Call,
     Return,
 }
 
@@ -136,8 +137,14 @@ Chunk_AddLocal :: proc(this: ^Chunk, name: Token) -> u8 {
     return u8(len(this.locals))
 }
 
+Chunk_AddLocalEmpty :: proc(this: ^Chunk) -> u8 {
+    append(&this.locals, Local { Token {}, .Bool, -1 })
+    return u8(len(this.locals))
+}
+
 Chunk_ResolveLocal :: proc(this: ^Chunk, name: ^Token) -> (u8, int, bool) {
     for &local, i in this.locals {
+        if local.name.type != .Identifier do continue
         if IdentifiersEqual(name, &local.name) {
             return u8(i), local.depth, true
         }

@@ -1,13 +1,9 @@
-for a: int = 0; a < 10; a = a + 1 {
-	print a
+test :: proc(x: int, y: int) {
+	print x + y
 }
 
-print ""
-
-b: int = 0
-for ; b < 3; b = b + 2 {
-	print b
+main :: proc() {
+	test(1, 2)
 }
 
-print ""
-print "Eu amo meu momo"
+main()

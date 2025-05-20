@@ -14,6 +14,7 @@ ValueType :: enum  {
     //    Quaternion64, Quaternion128, Quaternion256,
     Rune,
     String,
+    Procedure,
 //    StaticArray,
 //    DynamicArray,
 //    Struct,
@@ -25,6 +26,7 @@ valueTypeRunes := [ValueType][]rune {
     .F64 = { 'f', '6', '4' },
     .Rune = { 'r', 'u', 'n', 'e' },
     .String = { 's', 't', 'r', 'i', 'n', 'g' },
+    .Procedure = { 'p', 'r', 'o', 'c', 'e', 'd', 'u', 'r', 'e' },
 }
 
 Bool :: struct {
@@ -47,6 +49,12 @@ Rune :: struct {
     value: rune,
 }
 
+Procedure :: struct {
+    name: string,
+    arity: int,
+    chunk: Chunk,
+}
+
 Value :: struct {
     type: ValueType,
     as: union {
@@ -55,6 +63,7 @@ Value :: struct {
         ^F64,
         ^String,
         ^Rune,
+        ^Procedure,
     },
 }
 
@@ -65,6 +74,7 @@ Value_GetValueType :: proc(name: []rune) -> (type: ValueType, success: bool) {
     case 'i': return Value_CheckValueTypeKeyword(1, name, .Int)
     case 's': return Value_CheckValueTypeKeyword(1, name, .String)
     case 'r': return Value_CheckValueTypeKeyword(1, name, .Rune)
+    case 'p': return Value_CheckValueTypeKeyword(1, name, .Procedure)
     }
     return .Bool, false
 }
@@ -98,6 +108,10 @@ Value_Rune :: proc(r: ^Rune) -> Value {
     return Value { .Rune, r }
 }
 
+Value_Procedure :: proc(p: ^Procedure) -> Value {
+    return Value { .Procedure, p }
+}
+
 // *************** Printers ***************
 
 Value_Print :: proc(this: Value) {
@@ -107,6 +121,7 @@ Value_Print :: proc(this: Value) {
     case ^F64: fmt.printf("%g", v.value)
     case ^String: fmt.print(v.value)
     case ^Rune: fmt.print(v.value)
+    case ^Procedure: fmt.print(v.name, ":: proc")
     case: panic("Unrecognized value type")
     }
 }
@@ -153,6 +168,13 @@ Value_AsRune :: proc(this: Value) -> ^Rune {
     return this.as.(^Rune)
 }
 
+Value_TryAsProcedure :: proc(this: Value) -> (^Procedure, bool) {
+    return this.as.(^Procedure)
+}
+Value_AsProcedure :: proc(this: Value) -> ^Procedure {
+    return this.as.(^Procedure)
+}
+
 // *************** Checkers ***************
 
 Value_IsBool :: proc(this: Value) -> bool {
@@ -167,8 +189,16 @@ Value_IsF64 :: proc(this: Value) -> bool {
     return this.type == .F64
 }
 
+Value_IsRune :: proc(this: Value) -> bool {
+    return this.type == .Rune
+}
+
 Value_IsString :: proc(this: Value) -> bool {
     return this.type == .String
+}
+
+Value_IsProcedure :: proc(this: Value) -> bool {
+    return this.type == .Procedure
 }
 
 Value_IsFalsey :: proc(this: Value) -> bool {
@@ -187,6 +217,7 @@ Value_Equals :: proc(a, b: Value) -> bool {
     case .F64: return Value_AsF64(a).value == Value_AsF64(b).value
     case .String: return strings.compare(Value_AsString(a).value, Value_AsString(b).value) == 0
     case .Rune: return Value_AsRune(a).value == Value_AsRune(b).value
+    case .Procedure: return false
     }
     return false
 }

@@ -5,10 +5,15 @@ import "core:os"
 import "core:mem"
 import vmem "core:mem/virtual"
 
-VM :: struct {
-    chunk: ^Chunk,
+CallFrame :: struct {
+    procedure: ^Procedure,
     ip: int, // instruction pointer
+    slots: []Value,
+}
+
+VM :: struct {
     stack: [dynamic]Value,
+    frames: [dynamic]CallFrame,
     // Todo: Globals suck. Fix them. They should work simmilarly to locals
     globals: map[string]Value,
 
@@ -28,6 +33,7 @@ VM_Init :: proc(this: ^VM) {
     if !vmArenaOk do panic("Unable to initialize vm's arena")
 
     this.stack = make([dynamic]Value, this.vmAllocator)
+    this.frames = make([dynamic]CallFrame, this.vmAllocator)
     this.globals = make(map[string]Value, this.vmAllocator)
 }
 
@@ -44,35 +50,81 @@ VM_StackPop :: proc(this: ^VM) -> Value {
 }
 
 VM_StackPeek :: proc(this: ^VM, distance: int) -> Value {
-    return peek(&this.stack)
+    return peek(&this.stack, distance)
+}
+
+VM_FramePush :: proc(this: ^VM, frame: CallFrame) {
+    append(&this.frames, frame)
+}
+
+VM_FramePop :: proc(this: ^VM) -> CallFrame {
+    return pop(&this.frames)
+}
+
+VM_FramePeek :: proc(this: ^VM) -> CallFrame {
+    return peek(&this.frames)
+}
+
+VM_Call :: proc(this: ^VM, procedure: ^Procedure, argCount: int) -> bool {
+    if argCount != procedure.arity {
+        VM_RuntimeError(this, "Expected %d arguments but got %d", procedure.arity, argCount)
+        return false
+    }
+
+    if len(this.frames) == max(int) {
+        VM_RuntimeError(this, "Stack overflow")
+        return false
+    }
+
+    frame := CallFrame { }
+    frame.procedure = procedure
+    frame.ip = 0
+    // This stack frame includes all of the procedures arguments plus an
+    // empty stack slot at the begining
+    frame.slots = this.stack[max(0, len(this.stack) - argCount - 1):]
+    VM_FramePush(this, frame)
+
+    return true
+}
+
+VM_CallValue :: proc(this: ^VM, calee: Value, argCount: int) -> bool {
+    if Value_IsProcedure(calee) {
+        #partial switch calee.type {
+        case .Procedure: return VM_Call(this, Value_AsProcedure(calee), argCount)
+        case: { } // non-callable types
+        }
+    }
+    VM_RuntimeError(this, "Can only call procedures")
+    return false
 }
 
 VM_Run :: proc(this: ^VM) -> VMInterpretResult {
-    ReadByte :: proc(this: ^VM) -> u8 {
+    ReadByte :: proc(this: ^CallFrame) -> u8 {
         defer this.ip += 1
-        return this.chunk.code[this.ip]
+        return this.procedure.chunk.code[this.ip]
     }
 
-    ReadShort :: proc(this: ^VM) -> u16 {
+    ReadShort :: proc(this: ^CallFrame) -> u16 {
         defer this.ip += 2
-        return u16(this.chunk.code[this.ip] << 8) | u16(this.chunk.code[this.ip + 1])
+        return u16(this.procedure.chunk.code[this.ip] << 8) | u16(this.procedure.chunk.code[this.ip + 1])
     }
 
-    ReadOp :: proc(this: ^VM) -> OpCode {
+    ReadOp :: proc(this: ^CallFrame) -> OpCode {
         return OpCode(ReadByte(this))
     }
 
-    ReadConstant :: proc(this: ^VM) -> Value {
-        value, ok := Chunk_GetConstantValue(this.chunk, Constant(ReadByte(this)))
+    ReadConstant :: proc(this: ^CallFrame) -> Value {
+        value, ok := Chunk_GetConstantValue(&this.procedure.chunk, Constant(ReadByte(this)))
         if !ok do panic("Unable to read constant value from chunk")
         return value
     }
 
-    ReadString :: proc(this: ^VM) -> ^String {
+    ReadString :: proc(this: ^CallFrame) -> ^String {
         return Value_AsString(ReadConstant(this))
     }
 
     BinaryOp :: proc(this: ^VM, op: OpCode) {
+        frame := VM_FramePeek(this)
         b, okB := Value_TryAsF64(VM_StackPop(this))
         a, okA := Value_TryAsF64(VM_StackPop(this))
         if !okA || !okB {
@@ -80,15 +132,17 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
         }
         av, bv := a.value, b.value
         #partial switch op {
-        case .Greater: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, av > bv)))
-        case .Less: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, av < bv)))
-        case .Add: VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, av + bv)))
-        case .Subtract: VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, av - bv)))
-        case .Multiply: VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, av - bv)))
-        case .Divide: VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, av / bv)))
+        case .Greater: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(&frame.procedure.chunk, av > bv)))
+        case .Less: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(&frame.procedure.chunk, av < bv)))
+        case .Add: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av + bv)))
+        case .Subtract: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av - bv)))
+        case .Multiply: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av - bv)))
+        case .Divide: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av / bv)))
         case: panic("[ERROR] Invalid Operation: Not a binary operation")
         }
     }
+
+    frame := VM_FramePeek(this)
 
     when DEBUG_TRACE_EXECUTION {
         fmt.println("== Tracing Execution ==")
@@ -104,27 +158,27 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             }
             fmt.println()
 
-            Debug_DisassembleInstruction(this.chunk, this.ip)
+            Debug_DisassembleInstruction(&frame.procedure.chunk, frame.ip)
         }
 
-        op := ReadOp(this)
+        op := ReadOp(&frame)
         switch op {
-        case .Constant: VM_StackPush(this, ReadConstant(this))
+        case .Constant: VM_StackPush(this, ReadConstant(&frame))
         case .Nil: {
         } //VM_StackPush(this, Value_Nil())
-        case .True: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, true)))
-        case .False: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, false)))
+        case .True: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(&frame.procedure.chunk, true)))
+        case .False: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(&frame.procedure.chunk, false)))
         case .Pop: VM_StackPop(this)
         case .GetLocal: {
-            slot := ReadByte(this)
-            VM_StackPush(this, this.stack[slot])
+            slot := ReadByte(&frame)
+            VM_StackPush(this, frame.slots[slot])
         }
         case .SetLocal: {
-            slot := ReadByte(this)
-            this.stack[slot] = VM_StackPeek(this, 0)
+            slot := ReadByte(&frame)
+            frame.slots[slot] = VM_StackPeek(this, 0)
         }
         case .GetGlobal: {
-            globalName := ReadString(this)
+            globalName := ReadString(&frame)
             globalValue, ok := this.globals[globalName.value]
             if !ok {
                 VM_RuntimeError(this, "Undefined variable %s", globalName.value)
@@ -133,12 +187,12 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             VM_StackPush(this, globalValue)
         }
         case .DefineGlobal: {
-            globalName := ReadString(this)
+            globalName := ReadString(&frame)
             this.globals[globalName.value] = VM_StackPeek(this, 0)
             VM_StackPop(this)
         }
         case .SetGlobal: {
-            globalName := ReadString(this)
+            globalName := ReadString(&frame)
             _, ok := this.globals[globalName.value]
             if !ok {
                 VM_RuntimeError(this, "Undefined variable %s", globalName.value)
@@ -149,34 +203,50 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
         case .Equal: {
             b := VM_StackPop(this)
             a := VM_StackPop(this)
-            value := Chunk_AllocateBool(this.chunk, Value_Equals(a, b))
+            value := Chunk_AllocateBool(&frame.procedure.chunk, Value_Equals(a, b))
             VM_StackPush(this, Value_Bool(value))
         }
         case .Greater, .Less, .Add, .Subtract, .Multiply, .Divide: BinaryOp(this, op)
-        case .Not: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(this.chunk, Value_IsFalsey(VM_StackPop(this)))))
+        case .Not: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(&frame.procedure.chunk, Value_IsFalsey(VM_StackPop(this)))))
         case .Negate: {
             number, ok := Value_TryAsF64(VM_StackPeek(this, 0))
             if !ok {
                 VM_RuntimeError(this, "Operand must be a number.")
                 return .RuntimeError
             }
-            VM_StackPush(this, Value_F64(Chunk_AllocateF64(this.chunk, -number.value)))
+            VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, -number.value)))
             VM_StackPop(this)
         }
         case .Print: Value_Println(VM_StackPop(this))
         case .Jump: {
-            offset := ReadShort(this)
-            this.ip += int(offset)
+            offset := ReadShort(&frame)
+            frame.ip += int(offset)
         }
         case .JumpIfFalse: {
-            offset := ReadShort(this)
-            if Value_IsFalsey(VM_StackPeek(this, 0)) do this.ip += int(offset)
+            offset := ReadShort(&frame)
+            if Value_IsFalsey(VM_StackPeek(this, 0)) do frame.ip += int(offset)
         }
         case .Loop: {
-            offset := ReadShort(this)
-            this.ip -= int(offset)
+            offset := ReadShort(&frame)
+            frame.ip -= int(offset)
         }
-        case .Return: return .Ok
+        case .Call: {
+            argCount := int(ReadByte(&frame))
+            if !VM_CallValue(this, VM_StackPeek(this, argCount), argCount) do return .RuntimeError
+            frame = VM_FramePop(this)
+        }
+        case .Return: {
+            result := VM_StackPop(this)
+            // If this was the last call frame, end
+            if len(this.frames) == 1 {
+                // Empty the stack
+                for len(this.stack) > 0 do VM_StackPop(this)
+                return .Ok
+            }
+
+            VM_StackPush(this, result)
+            frame = VM_FramePop(this)
+        }
         case: return .CompileError
         }
     }
@@ -185,21 +255,20 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
 }
 
 VM_Interpret :: proc(this: ^VM, source: string) -> VMInterpretResult {
-    chunk: Chunk
-    Chunk_Init(&chunk)
-    defer Chunk_Free(&chunk)
+    parser: Parser
+    Parser_Init(&parser)
+    defer Parser_Free(&parser)
 
     compiler: Compiler
-    Compiler_Init(&compiler)
+    Compiler_Init(&compiler, &parser, true)
     defer Compiler_Free(&compiler)
-    if !Compiler_Compile(&compiler, source, &chunk) do return .CompileError
 
-    this.chunk = &chunk
-    this.ip = 0
+    ok, procedure := Compiler_Compile(&compiler, source)
+    if !ok do return .CompileError
 
-    VM_Run(this)
+    VM_Call(this, procedure, 0)
 
-    return .Ok
+    return VM_Run(this)
 }
 
 VM_REPL :: proc(this: ^VM) {
@@ -236,9 +305,16 @@ VM_RunFile :: proc(this: ^VM, file: string) {
     }
 }
 
-VM_RuntimeError :: proc(this: ^VM, format: string, vargs: ..string) {
-    fmt.fprintfln(os.stderr, format, vargs)
+VM_RuntimeError :: proc(this: ^VM, format: string, vargs: ..any) {
+    fmt.fprintfln(os.stderr, format, ..vargs)
 
-    line := this.chunk.lines[this.ip]
+    #reverse for frame in this.frames {
+        procedure := frame.procedure
+        instruction := frame.ip
+        fmt.fprintf(os.stderr, "[line %d] in %s()", procedure.chunk.lines[instruction], procedure.name)
+    }
+
+    frame := VM_FramePeek(this)
+    line := frame.procedure.chunk.lines[frame.ip]
     fmt.fprintfln(os.stderr, "[line %d] in script", line)
 }

@@ -3,7 +3,21 @@ package yupii
 import "core:fmt"
 import os "core:os"
 
-TEST_INPUT :: "1 + 2"
+TEST_INPUT :: `
+test :: proc() {
+	print "this is from inside the proc"
+}
+
+main :: proc() {
+    test()
+}
+
+test2 :: proc() {
+    print "this is another test"
+}
+
+print main
+`
 
 main :: proc() {
 //    test()

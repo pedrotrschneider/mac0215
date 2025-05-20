@@ -30,6 +30,7 @@ OP_NAME := [OpCode]string {
     .Jump = "OP_JUMP",
     .JumpIfFalse = "OP_JUMP_IF_FALSE",
     .Loop = "OP_LOOP",
+    .Call = "OP_CALL",
     .Return = "OP_RETURN",
 }
 
@@ -46,7 +47,7 @@ Debug_DisassembleInstruction :: proc(chunk: ^Chunk, offset: int) -> int {
     case .Constant, .DefineGlobal, .GetGlobal, .SetGlobal: return ConstantInstruction(op, chunk, offset)
     case .Nil, .True, .False, .Equal, .Pop, .Greater, .Less, .Add, .Subtract, .Multiply, .Divide, .Not, .Negate, .Print, .Return:
         return SimpleInstruction(op, offset)
-    case .GetLocal, .SetLocal: return ByteInstruction(op, chunk, offset)
+    case .GetLocal, .SetLocal, .Call: return ByteInstruction(op, chunk, offset)
     case .Jump, .JumpIfFalse: return JumpInstruction(op, 1, chunk, offset)
     case .Loop: return JumpInstruction(op, -1, chunk, offset)
     case:
