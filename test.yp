@@ -1,8 +1,14 @@
-main :: proc() {
-	NativeTest(10)
-	print 1 + 2
+RlInitWindow(800, 800, "Hello from Yupii\0")
+RlSetTargetFPS(60)
+
+for ; !(RlWindowShouldClose() or RlIsKeyPressed(256)); {
+	RlPollInputEvents()
+
+	RlClearBackground(0, 255, 0, 255)
+
+	RlBeginDrawing()
+	RlDrawRectangle(400, 400, 100, 100, 255, 0, 0, 255)
+	RlEndDrawing()
 }
 
-main()
-
-print "Hello World"
+RlCloseWindow()

@@ -24,6 +24,7 @@ print main
 main :: proc() {
 //    test()
     run()
+//    testRaylib()
 }
 
 @(private="file")

@@ -37,6 +37,16 @@ VM_Init :: proc(this: ^VM) {
     this.globals = make(map[string]Value, this.vmAllocator)
 
     VM_DefineNative(this, "NativeTest", NativeTest)
+    VM_DefineNative(this, "RlInitWindow", RlInitWindow)
+    VM_DefineNative(this, "RlCloseWindow", RlCloseWindow)
+    VM_DefineNative(this, "RlWindowShouldClose", RlWindowShouldClose)
+    VM_DefineNative(this, "RlSetTargetFPS", RlSetTargetFPS)
+    VM_DefineNative(this, "RlPollInputEvents", RlPollInputEvents)
+    VM_DefineNative(this, "RlIsKeyPressed", RlIsKeyPressed)
+    VM_DefineNative(this, "RlBeginDrawing", RlBeginDrawing)
+    VM_DefineNative(this, "RlEndDrawing", RlEndDrawing)
+    VM_DefineNative(this, "RlClearBackground", RlClearBackground)
+    VM_DefineNative(this, "RlDrawRectangle", RlDrawRectangle)
 }
 
 VM_Free :: proc(this: ^VM) {
@@ -94,7 +104,10 @@ VM_CallValue :: proc(this: ^VM, calee: Value, argCount: int) -> bool {
     case .Procedure: return VM_Call(this, Value_AsProcedure(calee), argCount)
     case .NativeProcedure: {
         nativeProc := Value_AsNativeProcedure(calee)
-        result := nativeProc(argCount, this.stack[max(0, len(this.stack) - argCount - 1):], this.vmAllocator)
+        result := nativeProc(argCount, this.stack[max(0, len(this.stack) - argCount):], this.vmAllocator)
+        for i := 0; i < argCount + 1; i += 1 {
+            VM_StackPop(this)
+        }
         VM_StackPush(this, result)
         return true
     }

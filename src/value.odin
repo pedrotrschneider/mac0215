@@ -127,7 +127,10 @@ Value_NativeProcedure :: proc(np: NativeProcedure) -> Value {
 
 Value_Print :: proc(this: Value) {
     switch v in this.as {
-    case ^Bool: fmt.print(v.value ? "true" : "false")
+    case ^Bool: {
+        if v == nil do fmt.print("none")
+        else do fmt.print(v.value ? "true" : "false")
+    }
     case ^Int: fmt.print(v.value)
     case ^F64: fmt.printf("%g", v.value)
     case ^String: fmt.print(v.value)
