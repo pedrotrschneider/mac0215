@@ -19,6 +19,8 @@ test2 :: proc() {
 print main
 `
 
+//NativeProcedure :: proc(argCount: int, args: []Value)
+
 main :: proc() {
 //    test()
     run()
@@ -30,7 +32,7 @@ test :: proc() {
 
 @(private="file")
 run :: proc() {
-    fmt.println("Starting program...")
+    fmt.println("[DEBUG] Starting program...")
     vm: VM
     VM_Init(&vm)
     defer VM_Free(&vm)

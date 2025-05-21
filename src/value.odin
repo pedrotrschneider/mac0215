@@ -3,6 +3,7 @@ package yupii
 import "core:fmt"
 import "core:strings"
 import slice "core:slice"
+import "core:mem"
 
 ValueType :: enum  {
     Bool,
@@ -15,6 +16,7 @@ ValueType :: enum  {
     Rune,
     String,
     Procedure,
+    NativeProcedure,
 //    StaticArray,
 //    DynamicArray,
 //    Struct,
@@ -27,6 +29,7 @@ valueTypeRunes := [ValueType][]rune {
     .Rune = { 'r', 'u', 'n', 'e' },
     .String = { 's', 't', 'r', 'i', 'n', 'g' },
     .Procedure = { 'p', 'r', 'o', 'c', 'e', 'd', 'u', 'r', 'e' },
+    .NativeProcedure = { 'n', 'a', 't', 'i', 'v', 'e', 'p', 'r', 'o', 'c' },
 }
 
 Bool :: struct {
@@ -55,6 +58,8 @@ Procedure :: struct {
     chunk: Chunk,
 }
 
+NativeProcedure :: proc(argCount: int, args: []Value, allocator: mem.Allocator) -> Value
+
 Value :: struct {
     type: ValueType,
     as: union {
@@ -64,6 +69,7 @@ Value :: struct {
         ^String,
         ^Rune,
         ^Procedure,
+        NativeProcedure,
     },
 }
 
@@ -72,6 +78,7 @@ Value_GetValueType :: proc(name: []rune) -> (type: ValueType, success: bool) {
     case 'b': return Value_CheckValueTypeKeyword(1, name, .Bool)
     case 'f': return Value_CheckValueTypeKeyword(1, name, .F64)
     case 'i': return Value_CheckValueTypeKeyword(1, name, .Int)
+    case 'n': return Value_CheckValueTypeKeyword(1, name, .NativeProcedure)
     case 's': return Value_CheckValueTypeKeyword(1, name, .String)
     case 'r': return Value_CheckValueTypeKeyword(1, name, .Rune)
     case 'p': return Value_CheckValueTypeKeyword(1, name, .Procedure)
@@ -112,6 +119,10 @@ Value_Procedure :: proc(p: ^Procedure) -> Value {
     return Value { .Procedure, p }
 }
 
+Value_NativeProcedure :: proc(np: NativeProcedure) -> Value {
+    return Value { .NativeProcedure, np }
+}
+
 // *************** Printers ***************
 
 Value_Print :: proc(this: Value) {
@@ -122,6 +133,7 @@ Value_Print :: proc(this: Value) {
     case ^String: fmt.print(v.value)
     case ^Rune: fmt.print(v.value)
     case ^Procedure: fmt.print(v.name, ":: proc")
+    case NativeProcedure: fmt.print("<native> :: proc")
     case: panic("Unrecognized value type")
     }
 }
@@ -175,6 +187,13 @@ Value_AsProcedure :: proc(this: Value) -> ^Procedure {
     return this.as.(^Procedure)
 }
 
+Value_TryAsNativeProcedure :: proc(this: Value) -> (NativeProcedure, bool) {
+    return this.as.(NativeProcedure)
+}
+Value_AsNativeProcedure :: proc(this: Value) -> NativeProcedure {
+    return this.as.(NativeProcedure)
+}
+
 // *************** Checkers ***************
 
 Value_IsBool :: proc(this: Value) -> bool {
@@ -201,6 +220,10 @@ Value_IsProcedure :: proc(this: Value) -> bool {
     return this.type == .Procedure
 }
 
+Value_IsNativeProcedure :: proc(this: Value) -> bool {
+    return this.type == .NativeProcedure
+}
+
 Value_IsFalsey :: proc(this: Value) -> bool {
     boolValue, isBool := Value_TryAsBool(this)
     intValue, isInt := Value_TryAsInt(this)
@@ -218,6 +241,7 @@ Value_Equals :: proc(a, b: Value) -> bool {
     case .String: return strings.compare(Value_AsString(a).value, Value_AsString(b).value) == 0
     case .Rune: return Value_AsRune(a).value == Value_AsRune(b).value
     case .Procedure: return false
+    case .NativeProcedure: return false
     }
     return false
 }

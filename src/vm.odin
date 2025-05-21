@@ -35,6 +35,8 @@ VM_Init :: proc(this: ^VM) {
     this.stack = make([dynamic]Value, this.vmAllocator)
     this.frames = make([dynamic]CallFrame, this.vmAllocator)
     this.globals = make(map[string]Value, this.vmAllocator)
+
+    VM_DefineNative(this, "NativeTest", NativeTest)
 }
 
 VM_Free :: proc(this: ^VM) {
@@ -61,8 +63,8 @@ VM_FramePop :: proc(this: ^VM) -> CallFrame {
     return pop(&this.frames)
 }
 
-VM_FramePeek :: proc(this: ^VM) -> CallFrame {
-    return peek(&this.frames)
+VM_FramePeek :: proc(this: ^VM) -> ^CallFrame {
+    return &this.frames[len(this.frames) - 1]
 }
 
 VM_Call :: proc(this: ^VM, procedure: ^Procedure, argCount: int) -> bool {
@@ -88,11 +90,14 @@ VM_Call :: proc(this: ^VM, procedure: ^Procedure, argCount: int) -> bool {
 }
 
 VM_CallValue :: proc(this: ^VM, calee: Value, argCount: int) -> bool {
-    if Value_IsProcedure(calee) {
-        #partial switch calee.type {
-        case .Procedure: return VM_Call(this, Value_AsProcedure(calee), argCount)
-        case: { } // non-callable types
-        }
+    #partial switch calee.type {
+    case .Procedure: return VM_Call(this, Value_AsProcedure(calee), argCount)
+    case .NativeProcedure: {
+        nativeProc := Value_AsNativeProcedure(calee)
+        result := nativeProc(argCount, this.stack[max(0, len(this.stack) - argCount - 1):], this.vmAllocator)
+        VM_StackPush(this, result)
+        return true
+    }
     }
     VM_RuntimeError(this, "Can only call procedures")
     return false
@@ -161,24 +166,24 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             Debug_DisassembleInstruction(&frame.procedure.chunk, frame.ip)
         }
 
-        op := ReadOp(&frame)
+        op := ReadOp(frame)
         switch op {
-        case .Constant: VM_StackPush(this, ReadConstant(&frame))
+        case .Constant: VM_StackPush(this, ReadConstant(frame))
         case .Nil: {
         } //VM_StackPush(this, Value_Nil())
         case .True: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(&frame.procedure.chunk, true)))
         case .False: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(&frame.procedure.chunk, false)))
         case .Pop: VM_StackPop(this)
         case .GetLocal: {
-            slot := ReadByte(&frame)
+            slot := ReadByte(frame)
             VM_StackPush(this, frame.slots[slot])
         }
         case .SetLocal: {
-            slot := ReadByte(&frame)
+            slot := ReadByte(frame)
             frame.slots[slot] = VM_StackPeek(this, 0)
         }
         case .GetGlobal: {
-            globalName := ReadString(&frame)
+            globalName := ReadString(frame)
             globalValue, ok := this.globals[globalName.value]
             if !ok {
                 VM_RuntimeError(this, "Undefined variable %s", globalName.value)
@@ -187,12 +192,12 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
             VM_StackPush(this, globalValue)
         }
         case .DefineGlobal: {
-            globalName := ReadString(&frame)
+            globalName := ReadString(frame)
             this.globals[globalName.value] = VM_StackPeek(this, 0)
             VM_StackPop(this)
         }
         case .SetGlobal: {
-            globalName := ReadString(&frame)
+            globalName := ReadString(frame)
             _, ok := this.globals[globalName.value]
             if !ok {
                 VM_RuntimeError(this, "Undefined variable %s", globalName.value)
@@ -219,33 +224,35 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
         }
         case .Print: Value_Println(VM_StackPop(this))
         case .Jump: {
-            offset := ReadShort(&frame)
+            offset := ReadShort(frame)
             frame.ip += int(offset)
         }
         case .JumpIfFalse: {
-            offset := ReadShort(&frame)
+            offset := ReadShort(frame)
             if Value_IsFalsey(VM_StackPeek(this, 0)) do frame.ip += int(offset)
         }
         case .Loop: {
-            offset := ReadShort(&frame)
+            offset := ReadShort(frame)
             frame.ip -= int(offset)
         }
         case .Call: {
-            argCount := int(ReadByte(&frame))
+            argCount := int(ReadByte(frame))
             if !VM_CallValue(this, VM_StackPeek(this, argCount), argCount) do return .RuntimeError
-            frame = VM_FramePop(this)
+            frame = VM_FramePeek(this)
         }
         case .Return: {
-            result := VM_StackPop(this)
+            VM_FramePop(this)
             // If this was the last call frame, end
-            if len(this.frames) == 1 {
-                // Empty the stack
-                for len(this.stack) > 0 do VM_StackPop(this)
+            if len(this.frames) == 0 {
                 return .Ok
             }
 
+            result := VM_StackPop(this)
+            if result.type != .Procedure && result.type != .NativeProcedure {
+                VM_StackPop(this)
+            }
             VM_StackPush(this, result)
-            frame = VM_FramePop(this)
+            frame = VM_FramePeek(this)
         }
         case: return .CompileError
         }
@@ -291,7 +298,7 @@ VM_REPL :: proc(this: ^VM) {
 }
 
 VM_RunFile :: proc(this: ^VM, file: string) {
-    fmt.println("Executing file", file)
+    fmt.println("[DEBUG] Executing file", file)
     source, ok := os.read_entire_file_from_filename(file, this.vmAllocator)
     if !ok {
         fmt.fprintln(os.stderr, "[ERROR] Failed to read source file", file)
@@ -299,7 +306,7 @@ VM_RunFile :: proc(this: ^VM, file: string) {
     }
     result := VM_Interpret(this, string(source))
     switch result {
-    case .Ok: fmt.println("Successfully executed file", file)
+    case .Ok: fmt.println("[DEBUG] Successfully executed file", file)
     case .CompileError: os.exit(65)
     case .RuntimeError: os.exit(70)
     }
@@ -317,4 +324,9 @@ VM_RuntimeError :: proc(this: ^VM, format: string, vargs: ..any) {
     frame := VM_FramePeek(this)
     line := frame.procedure.chunk.lines[frame.ip]
     fmt.fprintfln(os.stderr, "[line %d] in script", line)
+}
+
+VM_DefineNative :: proc(this: ^VM, name: string, procedure: NativeProcedure) {
+    value := Value_NativeProcedure(procedure)
+    this.globals[name] = value
 }

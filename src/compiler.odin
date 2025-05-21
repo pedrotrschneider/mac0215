@@ -63,9 +63,12 @@ Compiler_Compile :: proc(this: ^Compiler, source: string) -> (bool, ^Procedure) 
 
     Lexer_PopulateParser(&lexer, this.parser)
 
-    for &token in this.parser.tokens {
-        Token_Display(&token)
-        fmt.println()
+    when DEBUG_PRINT_CODE {
+        fmt.println("== Printing tokens ==")
+        for &token in this.parser.tokens {
+            Token_Display(&token)
+            fmt.println()
+        }
     }
 
     for !Compiler_MatchToken(this, .EOF) {

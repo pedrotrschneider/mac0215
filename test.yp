@@ -1,9 +1,8 @@
-test :: proc(x: int, y: int) {
-	print x + y
-}
-
 main :: proc() {
-	test(1, 2)
+	NativeTest(10)
+	print 1 + 2
 }
 
 main()
+
+print "Hello World"

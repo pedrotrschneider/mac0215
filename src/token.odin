@@ -66,6 +66,7 @@ Token_TypeFromValueType :: proc(valueType: ValueType) -> TokenType {
     case .Rune: return .RuneLiteral
     case .Bool: return .True
     case .Procedure: return .Proc
+    case .NativeProcedure: return .Proc
     }
     return .IntegerLiteral
 }
