@@ -1,13 +1,142 @@
-RlInitWindow(800, 800, "Hello from Yupii\0")
+// ------------ WINDOW ------------
+
+WINDOW_WIDTH: f64 = 2400
+WINDOW_HEIGHT: f64 = 1600
+
+RlInitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Hello from Yupii\0")
 RlSetTargetFPS(60)
 
-for ; !(RlWindowShouldClose() or RlIsKeyPressed(256)); {
+// ------------ PADDLES ------------
+
+PADDLE_WIDTH: f64 = 40
+PADDLE_HEIGHT: f64 = 400
+PADDLE_WALL_OFFSET: f64 = 40
+PADDLE_SPEED: f64 = 300
+
+paddle1PosX: f64 = PADDLE_WALL_OFFSET
+paddle1PosY: f64 = WINDOW_HEIGHT * 0.5
+
+paddle2PosX: f64 = WINDOW_WIDTH - PADDLE_WIDTH - PADDLE_WALL_OFFSET
+paddle2PosY: f64 = WINDOW_HEIGHT * 0.5
+
+DrawPaddle :: proc(posX: f64, posY: f64) {
+    RlDrawRectangle(posX, posY - PADDLE_HEIGHT * 0.5, PADDLE_WIDTH, PADDLE_HEIGHT, 255, 255, 255, 255)
+}
+
+UpdatePaddles :: proc() {
+    if RlIsKeyDown(RlKeyUp()) {
+        paddle2PosY = paddle2PosY - PADDLE_SPEED * RlDeltaTime()
+        if paddle2PosY < PADDLE_HEIGHT * 0.5 {
+            paddle2PosY = PADDLE_HEIGHT * 0.5
+        }
+    }
+    if RlIsKeyDown(RlKeyDown()) {
+        paddle2PosY = paddle2PosY + PADDLE_SPEED * RlDeltaTime()
+        if paddle2PosY > WINDOW_HEIGHT - PADDLE_HEIGHT * 0.5 {
+            paddle2PosY = WINDOW_HEIGHT - PADDLE_HEIGHT * 0.5
+        }
+    }
+
+    if RlIsKeyDown(RlKeyW()) {
+        paddle1PosY = paddle1PosY - PADDLE_SPEED * RlDeltaTime()
+    }
+    if RlIsKeyDown(RlKeyS()) {
+        paddle1PosY = paddle1PosY + PADDLE_SPEED * RlDeltaTime()
+    }
+}
+
+DrawPaddles :: proc() {
+	DrawPaddle(paddle1PosX, paddle1PosY)
+	DrawPaddle(paddle2PosX, paddle2PosY)
+}
+
+// ------------ BALL ------------
+
+BALL_SIZE: f64 = 75
+
+ballPosX: f64 = WINDOW_WIDTH * 0.5
+ballPosY: f64 = WINDOW_HEIGHT * 0.5
+
+ballDirX: f64 = sqrt(2) * 0.5
+ballDirY: f64 = -sqrt(2) * 0.5
+ballSpeed: f64 = 10
+
+UpdateBall :: proc() {
+    ballPosX = ballPosX + ballDirX * ballSpeed
+    ballPosY = ballPosY + ballDirY * ballSpeed
+
+    // Collision with the goals
+    if ballPosX < BALL_SIZE * 0.5 {
+        print "Player 2 won the game"
+        ballSpeed = 0
+    }
+    if ballPosX > WINDOW_WIDTH - BALL_SIZE * 0.5 {
+        print "Player 1 won the game"
+        ballSpeed = 0
+    }
+
+    // Collision with the walls
+    if ballDirY < 0 and ballPosY < BALL_SIZE * 0.5 {
+        ballDirY = -ballDirY
+    }
+    if ballDirY > 0 and ballPosY > WINDOW_HEIGHT - BALL_SIZE * 0.5 {
+        ballPosY = WINDOW_HEIGHT - BALL_SIZE
+        ballDirY = -ballDirY
+    }
+
+    // Collision with the left paddle
+    if ballDirX < 0 {
+        if ballPosX < paddle1PosX + PADDLE_WIDTH + BALL_SIZE * 0.5 {
+            if ballPosY + BALL_SIZE * 0.5 > paddle1PosY - PADDLE_HEIGHT * 0.5 and ballPosY - BALL_SIZE * 0.5 < paddle1PosY + PADDLE_HEIGHT * 0.5 {
+                ballDirX = -ballDirX
+            }
+        }
+    }
+
+    // Collision with the right paddle
+    if ballDirX > 0 {
+        if ballPosX > paddle2PosX - BALL_SIZE * 0.5 {
+            if ballPosY + BALL_SIZE * 0.5 > paddle2PosY - PADDLE_HEIGHT * 0.5 and ballPosY - BALL_SIZE * 0.5 < paddle2PosY + PADDLE_HEIGHT * 0.5 {
+                ballDirX = -ballDirX
+            }
+        }
+    }
+}
+
+DrawBall :: proc() {
+    RlDrawRectangle(ballPosX - BALL_SIZE * 0.5, ballPosY - BALL_SIZE * 0.5, BALL_SIZE, BALL_SIZE, 255, 255, 255, 255)
+}
+
+// ------------ GAME LOOP -------------
+
+DrawField :: proc() {
+    RlDrawCircle(WINDOW_WIDTH * 0.5, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.20, 100, 100, 100, 255)
+    RlDrawCircle(WINDOW_WIDTH * 0.5, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.18, 0, 0, 0, 255)
+
+    RlDrawCircle(WINDOW_WIDTH * 0.5, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.05, 100, 100, 100, 255)
+    RlDrawCircle(WINDOW_WIDTH * 0.5, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.03, 0, 0, 0, 255)
+
+    RlDrawRectangle(WINDOW_WIDTH * 0.5 - WINDOW_HEIGHT * 0.01, 0, WINDOW_HEIGHT * 0.02, WINDOW_HEIGHT, 100, 100, 100, 255)
+
+    RlDrawCircle(0, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.25, 100, 100, 100, 255)
+    RlDrawCircle(0, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.23, 0, 0, 0, 255)
+
+    RlDrawCircle(WINDOW_WIDTH, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.25, 100, 100, 100, 255)
+    RlDrawCircle(WINDOW_WIDTH, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.23, 0, 0, 0, 255)
+}
+
+for ; !(RlWindowShouldClose() or RlIsKeyPressed(RlKeyEscape())); {
 	RlPollInputEvents()
 
-	RlClearBackground(0, 255, 0, 255)
+	RlClearBackground(0, 0, 0, 255)
+
+    UpdateBall()
+    UpdatePaddles()
 
 	RlBeginDrawing()
-	RlDrawRectangle(400, 400, 100, 100, 255, 0, 0, 255)
+    DrawField()
+	DrawBall()
+    DrawPaddles()
 	RlEndDrawing()
 }
 

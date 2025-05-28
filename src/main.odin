@@ -3,32 +3,8 @@ package yupii
 import "core:fmt"
 import os "core:os"
 
-TEST_INPUT :: `
-test :: proc() {
-	print "this is from inside the proc"
-}
-
 main :: proc() {
-    test()
-}
-
-test2 :: proc() {
-    print "this is another test"
-}
-
-print main
-`
-
-//NativeProcedure :: proc(argCount: int, args: []Value)
-
-main :: proc() {
-//    test()
     run()
-//    testRaylib()
-}
-
-@(private="file")
-test :: proc() {
 }
 
 @(private="file")

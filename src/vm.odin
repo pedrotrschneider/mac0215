@@ -36,6 +36,8 @@ VM_Init :: proc(this: ^VM) {
     this.frames = make([dynamic]CallFrame, this.vmAllocator)
     this.globals = make(map[string]Value, this.vmAllocator)
 
+    VM_DefineNative(this, "sqrt", BindingSqrt)
+
     VM_DefineNative(this, "NativeTest", NativeTest)
     VM_DefineNative(this, "RlInitWindow", RlInitWindow)
     VM_DefineNative(this, "RlCloseWindow", RlCloseWindow)
@@ -43,10 +45,23 @@ VM_Init :: proc(this: ^VM) {
     VM_DefineNative(this, "RlSetTargetFPS", RlSetTargetFPS)
     VM_DefineNative(this, "RlPollInputEvents", RlPollInputEvents)
     VM_DefineNative(this, "RlIsKeyPressed", RlIsKeyPressed)
+    VM_DefineNative(this, "RlIsKeyDown", RlIsKeyDown)
     VM_DefineNative(this, "RlBeginDrawing", RlBeginDrawing)
     VM_DefineNative(this, "RlEndDrawing", RlEndDrawing)
     VM_DefineNative(this, "RlClearBackground", RlClearBackground)
     VM_DefineNative(this, "RlDrawRectangle", RlDrawRectangle)
+    VM_DefineNative(this, "RlDrawCircle", RlDrawCircle)
+    VM_DefineNative(this, "RlDeltaTime", RlDeltaTime)
+
+    VM_DefineNative(this, "RlKeyEscape", RlKeyEscape)
+    VM_DefineNative(this, "RlKeyUp", RlKeyUp)
+    VM_DefineNative(this, "RlKeyDown", RlKeyDown)
+    VM_DefineNative(this, "RlKeyLeft", RlKeyLeft)
+    VM_DefineNative(this, "RlKeyRight", RlKeyRight)
+    VM_DefineNative(this, "RlKeyW", RlKeyW)
+    VM_DefineNative(this, "RlKeyA", RlKeyA)
+    VM_DefineNative(this, "RlKeyS", RlKeyS)
+    VM_DefineNative(this, "RlKeyD", RlKeyD)
 }
 
 VM_Free :: proc(this: ^VM) {
@@ -154,7 +169,7 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
         case .Less: VM_StackPush(this, Value_Bool(Chunk_AllocateBool(&frame.procedure.chunk, av < bv)))
         case .Add: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av + bv)))
         case .Subtract: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av - bv)))
-        case .Multiply: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av - bv)))
+        case .Multiply: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av * bv)))
         case .Divide: VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, av / bv)))
         case: panic("[ERROR] Invalid Operation: Not a binary operation")
         }
@@ -232,8 +247,8 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
                 VM_RuntimeError(this, "Operand must be a number.")
                 return .RuntimeError
             }
-            VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, -number.value)))
             VM_StackPop(this)
+            VM_StackPush(this, Value_F64(Chunk_AllocateF64(&frame.procedure.chunk, -number.value)))
         }
         case .Print: Value_Println(VM_StackPop(this))
         case .Jump: {
@@ -292,21 +307,17 @@ VM_Interpret :: proc(this: ^VM, source: string) -> VMInterpretResult {
 }
 
 VM_REPL :: proc(this: ^VM) {
-    when !EXECUTE_TEST_CASE {
-        for {
-            fmt.print("> ")
+    for {
+        fmt.print("> ")
 
-            buffer: [1024]byte
-            _, err := os.read(os.stdin, buffer[:])
-            if err != nil {
-                panic("[ERROR] Failed to read from stdin")
-            }
-            line := string(buffer[:])
-            if len(line) > 0 do VM_Interpret(this, line)
-            else do break
+        buffer: [1024]byte
+        _, err := os.read(os.stdin, buffer[:])
+        if err != nil {
+            panic("[ERROR] Failed to read from stdin")
         }
-    } else {
-        VM_Interpret(this, TEST_INPUT)
+        line := string(buffer[:])
+        if len(line) > 0 do VM_Interpret(this, line)
+        else do break
     }
 }
 

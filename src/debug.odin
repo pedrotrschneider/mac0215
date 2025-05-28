@@ -4,7 +4,6 @@ import "core:fmt"
 
 DEBUG_PRINT_CODE :: #config(DEBUG_PRINT_CODE, false)
 DEBUG_TRACE_EXECUTION :: #config(DEBUG_TRACE_EXECUTION, false)
-EXECUTE_TEST_CASE :: #config(EXECUTE_TEST_CASE, false)
 
 OP_NAME := [OpCode]string {
     .Constant = "OP_CONSTANT",
