@@ -13,6 +13,7 @@ Compiler :: struct {
     currentProc: ^Procedure,
     procedures: map[string]Procedure,
     compilers: [dynamic]Compiler,
+    isScript: bool,
 
     parser: ^Parser,
     scopeDepth: int,
@@ -37,6 +38,7 @@ Compiler_Init :: proc(this: ^Compiler, parser: ^Parser, isScript: bool) {
 
     Chunk_AddLocalEmpty(&this.currentProc.chunk)
 
+    this.isScript = isScript
     if isScript do return
     previous := Parser_Previous(this.parser)
     source, _ := Token_GetSource(&previous)
@@ -61,7 +63,7 @@ Compiler_Compile :: proc(this: ^Compiler, source: string) -> (bool, ^Procedure) 
     Lexer_Init(&lexer, source)
     defer Lexer_Free(&lexer)
 
-    Lexer_PopulateParser(&lexer, this.parser)
+    Lexer_PopulateParser(&lexer, this.parser, this.isScript)
 
     when DEBUG_PRINT_CODE {
         fmt.println("== Printing tokens ==")

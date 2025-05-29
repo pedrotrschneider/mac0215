@@ -27,6 +27,11 @@ VMInterpretResult :: enum {
     RuntimeError,
 }
 
+VMTranspileResult :: enum {
+    Ok,
+    TranspileError,
+}
+
 VM_Init :: proc(this: ^VM) {
     vmArenaOk: bool
     this.vmAllocator, vmArenaOk = InitGrowingArenaAllocator(&this.vmArena)
@@ -37,6 +42,7 @@ VM_Init :: proc(this: ^VM) {
     this.globals = make(map[string]Value, this.vmAllocator)
 
     VM_DefineNative(this, "sqrt", BindingSqrt)
+    VM_DefineNative(this, "println", BindingPrintLn)
 
     VM_DefineNative(this, "NativeTest", NativeTest)
     VM_DefineNative(this, "RlInitWindow", RlInitWindow)
@@ -306,6 +312,16 @@ VM_Interpret :: proc(this: ^VM, source: string) -> VMInterpretResult {
     return VM_Run(this)
 }
 
+VM_Transpile :: proc(this: ^VM, settings: TranspilerSettings, source: string) -> VMTranspileResult {
+    transpiler: Transpiler
+    Transpiler_Init(&transpiler, settings)
+    defer Transpiler_Free(&transpiler)
+
+    Transpiler_Transpiler(&transpiler, source)
+
+    return .Ok
+}
+
 VM_REPL :: proc(this: ^VM) {
     for {
         fmt.print("> ")
@@ -333,6 +349,20 @@ VM_RunFile :: proc(this: ^VM, file: string) {
     case .Ok: fmt.println("[DEBUG] Successfully executed file", file)
     case .CompileError: os.exit(65)
     case .RuntimeError: os.exit(70)
+    }
+}
+
+VM_TranspileFile :: proc(this: ^VM, settings: TranspilerSettings, file: string) {
+    fmt.println("[DEBUG] Transpiling file", file)
+    source, ok := os.read_entire_file_from_filename(file, this.vmAllocator)
+    if !ok {
+        fmt.fprintln(os.stderr, "[ERROR] Failed to read source file", file)
+        os.exit(74)
+    }
+    result := VM_Transpile(this, settings, string(source))
+    switch result {
+    case .Ok: fmt.println("[DEBUG] Successfully executed file", file)
+    case .TranspileError: fmt.println("[DEBUG] Failed to transpile file", file)
     }
 }
 

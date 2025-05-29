@@ -32,12 +32,26 @@ Lexer_Free :: proc(this: ^Lexer) {
     vmem.arena_destroy(&this.arena)
 }
 
-Lexer_PopulateParser :: proc(this: ^Lexer, parser: ^Parser) {
+Lexer_PopulateParser :: proc(this: ^Lexer, parser: ^Parser, isInterpreted: bool = false) {
+    eofToken: Token
     for {
         token := Lexer_NextToken(this)
+        if token.type == .EOF {
+            eofToken = token
+            break
+        }
         Parser_PushToken(parser, token)
-        if token.type == .EOF do return
     }
+
+    if isInterpreted {
+        Parser_PushToken(parser, Token { type = .Endl, source = utf8.string_to_runes("\n"), line = eofToken.line, col = 1 })
+        Parser_PushToken(parser, Token { type = .Identifier, source = utf8.string_to_runes("main"), line = eofToken.line + 1, col = 1 })
+        Parser_PushToken(parser, Token { type = .LeftParen , source = utf8.string_to_runes("("), line = eofToken.line + 1, col = 5 })
+        Parser_PushToken(parser, Token { type = .RightParen , source = utf8.string_to_runes(")"), line = eofToken.line + 1, col = 6 })
+        Parser_PushToken(parser, Token { type = .Endl, source = utf8.string_to_runes("\n"), line = eofToken.line + 1, col = 7 })
+    }
+    eofToken.line += 2
+    Parser_PushToken(parser, eofToken)
 }
 
 @(private="file")
@@ -185,7 +199,7 @@ Lexer_GetIdentifierType :: proc(this: ^Lexer) -> TokenType {
         case 'r': {
             if this.current - this.start < 2 do break
             switch this.source[this.start + 2] {
-            case 'i': return Lexer_GetKeywordTokenType(this, 3, .Print)
+            //            case 'i': return Lexer_GetKeywordTokenType(this, 3, .Print)
             case 'o': return Lexer_GetKeywordTokenType(this, 3, .Proc)
             }
         }

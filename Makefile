@@ -12,6 +12,10 @@ run: build
 run_file: build
 	@./bin/main test.yp
 
+transpile_file: build
+	@./bin/main -t test.yp
+	@odin run test.odin -file
+
 debug: build_debug
 	@./bin/main-debug
 

@@ -23,6 +23,12 @@ BindingSqrt :: proc(argCount: int, args: []Value, allocator: mem.Allocator) -> V
     return Value_F64(r)
 }
 
+BindingPrintLn :: proc(argCount: int, args: []Value, allocator: mem.Allocator) -> Value {
+    s := Value_AsString(args[0]).value
+    fmt.println(s)
+    return Value_Bool(nil)
+}
+
 // ------------ RAYLIB BINDINGS ------------
 
 RlInitWindow :: proc(argCount: int, args: []Value, allocator: mem.Allocator) -> Value {

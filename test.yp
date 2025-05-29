@@ -3,9 +3,6 @@
 WINDOW_WIDTH: f64 = 2400
 WINDOW_HEIGHT: f64 = 1600
 
-RlInitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Hello from Yupii\0")
-RlSetTargetFPS(60)
-
 // ------------ PADDLES ------------
 
 PADDLE_WIDTH: f64 = 40
@@ -39,9 +36,15 @@ UpdatePaddles :: proc() {
 
     if RlIsKeyDown(RlKeyW()) {
         paddle1PosY = paddle1PosY - PADDLE_SPEED * RlDeltaTime()
+        if paddle1PosY < PADDLE_HEIGHT * 0.5 {
+            paddle1PosY = PADDLE_HEIGHT * 0.5
+        }
     }
     if RlIsKeyDown(RlKeyS()) {
         paddle1PosY = paddle1PosY + PADDLE_SPEED * RlDeltaTime()
+        if paddle1PosY > WINDOW_HEIGHT - PADDLE_HEIGHT * 0.5 {
+            paddle1PosY = WINDOW_HEIGHT - PADDLE_HEIGHT * 0.5
+        }
     }
 }
 
@@ -67,11 +70,11 @@ UpdateBall :: proc() {
 
     // Collision with the goals
     if ballPosX < BALL_SIZE * 0.5 {
-        print "Player 2 won the game"
+        println("Player 2 won the game")
         ballSpeed = 0
     }
     if ballPosX > WINDOW_WIDTH - BALL_SIZE * 0.5 {
-        print "Player 1 won the game"
+        println("Player 1 won the game")
         ballSpeed = 0
     }
 
@@ -80,7 +83,6 @@ UpdateBall :: proc() {
         ballDirY = -ballDirY
     }
     if ballDirY > 0 and ballPosY > WINDOW_HEIGHT - BALL_SIZE * 0.5 {
-        ballPosY = WINDOW_HEIGHT - BALL_SIZE
         ballDirY = -ballDirY
     }
 
@@ -107,7 +109,7 @@ DrawBall :: proc() {
     RlDrawRectangle(ballPosX - BALL_SIZE * 0.5, ballPosY - BALL_SIZE * 0.5, BALL_SIZE, BALL_SIZE, 255, 255, 255, 255)
 }
 
-// ------------ GAME LOOP -------------
+// ------------ FIELD -------------
 
 DrawField :: proc() {
     RlDrawCircle(WINDOW_WIDTH * 0.5, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.20, 100, 100, 100, 255)
@@ -125,19 +127,26 @@ DrawField :: proc() {
     RlDrawCircle(WINDOW_WIDTH, WINDOW_HEIGHT * 0.5, WINDOW_HEIGHT * 0.23, 0, 0, 0, 255)
 }
 
-for ; !(RlWindowShouldClose() or RlIsKeyPressed(RlKeyEscape())); {
-	RlPollInputEvents()
+// ------------ GAME LOOP -------------
 
-	RlClearBackground(0, 0, 0, 255)
+main :: proc() {
+    RlInitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Hello from Yupii")
+    RlSetTargetFPS(60)
 
-    UpdateBall()
-    UpdatePaddles()
+    for ; !(RlWindowShouldClose() or RlIsKeyPressed(RlKeyEscape())); {
+        RlPollInputEvents()
 
-	RlBeginDrawing()
-    DrawField()
-	DrawBall()
-    DrawPaddles()
-	RlEndDrawing()
+        RlClearBackground(0, 0, 0, 255)
+
+        UpdateBall()
+        UpdatePaddles()
+
+        RlBeginDrawing()
+        DrawField()
+        DrawBall()
+        DrawPaddles()
+        RlEndDrawing()
+    }
+
+    RlCloseWindow()
 }
-
-RlCloseWindow()
