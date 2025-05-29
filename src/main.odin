@@ -1,32 +1,24 @@
-package yupii
+package main
 
-import "core:fmt"
-import os "core:os"
+import "yupii"
+import "core:strings"
+import "core:os"
 
 main :: proc() {
-    run()
-}
-
-@(private="file")
-run :: proc() {
-    fmt.println("[DEBUG] Starting program...")
-    vm: VM
-    VM_Init(&vm)
-    defer VM_Free(&vm)
-
     args := os.args
     argc := len(args)
 
-    settings: TranspilerSettings
-    settings.packageName = "main"
-    settings.importedPackages = {
-        { "rl", "vendor:raylib" },
-        { "", "core:math" },
-        { "c", "core:c" },
-        { "", "core:strings" },
-        { "", "core:fmt" },
+    transpilerSettings: yupii.TranspilerSettings
+    transpilerSettings.packageName = "main"
+    transpilerSettings.importedPackages = {
+        { alias = "rl", name = "vendor:raylib" },
+        { alias = "", name = "core:math" },
+        { alias = "c", name = "core:c" },
+        { alias = "", name = "core:strings" },
+        { alias = "", name = "core:fmt" },
     }
-    settings.bindingImplementations = {
+
+    transpilerSettings.bindingImplementations = {
         `sqrt :: proc(f: f64) -> f64 {
             return math.sqrt(f)
         }`,
@@ -89,13 +81,44 @@ run :: proc() {
         }`,
     }
 
+    interpreterSettings: yupii.InterpreterSettings
+    interpreterSettings.bindings = {
+        { "sqrt", BindingSqrt },
+        { "println", BindingPrintLn },
+
+        { "NativeTest", NativeTest },
+        { "RlInitWindow", RlInitWindow },
+        { "RlCloseWindow", RlCloseWindow },
+        { "RlWindowShouldClose", RlWindowShouldClose },
+        { "RlSetTargetFPS", RlSetTargetFPS },
+        { "RlPollInputEvents", RlPollInputEvents },
+        { "RlIsKeyPressed", RlIsKeyPressed },
+        { "RlIsKeyDown", RlIsKeyDown },
+        { "RlBeginDrawing", RlBeginDrawing },
+        { "RlEndDrawing", RlEndDrawing },
+        { "RlClearBackground", RlClearBackground },
+        { "RlDrawRectangle", RlDrawRectangle },
+        { "RlDrawCircle", RlDrawCircle },
+        { "RlDeltaTime", RlDeltaTime },
+
+        { "RlKeyEscape", RlKeyEscape },
+        { "RlKeyUp", RlKeyUp },
+        { "RlKeyDown", RlKeyDown },
+        { "RlKeyLeft", RlKeyLeft },
+        { "RlKeyRight", RlKeyRight },
+        { "RlKeyW", RlKeyW },
+        { "RlKeyA", RlKeyA },
+        { "RlKeyS", RlKeyS },
+        { "RlKeyD", RlKeyD },
+    }
+
     if argc == 1 {
-        VM_REPL(&vm)
-    } else if argc == 2 {
-        VM_RunFile(&vm, args[1])
-    } else if argc == 3 {
-        VM_TranspileFile(&vm, settings, args[2])
+        yupii.REPL({ })
+    } else if argc == 3 && strings.compare(args[1], "-i") == 0 {
+        yupii.InterpretFile(interpreterSettings, args[2])
+    } else if argc == 4 && strings.compare(args[1], "-t") == 0 {
+        yupii.TranspileFile(transpilerSettings, args[2], args[3])
     } else {
-        panic("[ERROR] Usage: yupii {path_to_file}")
+        panic("[ERROR] Usage: yupii { -t | -i } { path_to_file } { outFile | nil }")
     }
 }

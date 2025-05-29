@@ -1,3 +1,4 @@
+#+private
 package yupii
 
 import fmt "core:fmt"

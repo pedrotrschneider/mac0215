@@ -1,9 +1,10 @@
+#+private
 package yupii
 
 import "core:fmt"
 import utf8 "core:unicode/utf8"
 import strconv "core:strconv"
-import os "core:os"
+import "core:os"
 import vmem "core:mem/virtual"
 import "core:mem"
 

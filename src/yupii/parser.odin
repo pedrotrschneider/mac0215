@@ -1,7 +1,8 @@
+#+private
 package yupii
 
 import fmt "core:fmt"
-import os "core:os"
+import "core:os"
 import utf8 "core:unicode/utf8"
 
 Parser :: struct {

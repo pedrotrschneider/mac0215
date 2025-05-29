@@ -1,3 +1,4 @@
+#+private
 package yupii
 
 import "core:fmt"
@@ -5,11 +6,7 @@ import "core:os"
 import "core:mem"
 import vmem "core:mem/virtual"
 
-CallFrame :: struct {
-    procedure: ^Procedure,
-    ip: int, // instruction pointer
-    slots: []Value,
-}
+// *************** PUBLIC ***************
 
 VM :: struct {
     stack: [dynamic]Value,
@@ -21,17 +18,6 @@ VM :: struct {
     vmAllocator: mem.Allocator,
 }
 
-VMInterpretResult :: enum {
-    Ok,
-    CompileError,
-    RuntimeError,
-}
-
-VMTranspileResult :: enum {
-    Ok,
-    TranspileError,
-}
-
 VM_Init :: proc(this: ^VM) {
     vmArenaOk: bool
     this.vmAllocator, vmArenaOk = InitGrowingArenaAllocator(&this.vmArena)
@@ -40,64 +26,109 @@ VM_Init :: proc(this: ^VM) {
     this.stack = make([dynamic]Value, this.vmAllocator)
     this.frames = make([dynamic]CallFrame, this.vmAllocator)
     this.globals = make(map[string]Value, this.vmAllocator)
-
-    VM_DefineNative(this, "sqrt", BindingSqrt)
-    VM_DefineNative(this, "println", BindingPrintLn)
-
-    VM_DefineNative(this, "NativeTest", NativeTest)
-    VM_DefineNative(this, "RlInitWindow", RlInitWindow)
-    VM_DefineNative(this, "RlCloseWindow", RlCloseWindow)
-    VM_DefineNative(this, "RlWindowShouldClose", RlWindowShouldClose)
-    VM_DefineNative(this, "RlSetTargetFPS", RlSetTargetFPS)
-    VM_DefineNative(this, "RlPollInputEvents", RlPollInputEvents)
-    VM_DefineNative(this, "RlIsKeyPressed", RlIsKeyPressed)
-    VM_DefineNative(this, "RlIsKeyDown", RlIsKeyDown)
-    VM_DefineNative(this, "RlBeginDrawing", RlBeginDrawing)
-    VM_DefineNative(this, "RlEndDrawing", RlEndDrawing)
-    VM_DefineNative(this, "RlClearBackground", RlClearBackground)
-    VM_DefineNative(this, "RlDrawRectangle", RlDrawRectangle)
-    VM_DefineNative(this, "RlDrawCircle", RlDrawCircle)
-    VM_DefineNative(this, "RlDeltaTime", RlDeltaTime)
-
-    VM_DefineNative(this, "RlKeyEscape", RlKeyEscape)
-    VM_DefineNative(this, "RlKeyUp", RlKeyUp)
-    VM_DefineNative(this, "RlKeyDown", RlKeyDown)
-    VM_DefineNative(this, "RlKeyLeft", RlKeyLeft)
-    VM_DefineNative(this, "RlKeyRight", RlKeyRight)
-    VM_DefineNative(this, "RlKeyW", RlKeyW)
-    VM_DefineNative(this, "RlKeyA", RlKeyA)
-    VM_DefineNative(this, "RlKeyS", RlKeyS)
-    VM_DefineNative(this, "RlKeyD", RlKeyD)
 }
 
 VM_Free :: proc(this: ^VM) {
     vmem.arena_destroy(&this.vmArena)
 }
 
+VM_REPL :: proc(this: ^VM, settings: InterpreterSettings) {
+    for {
+        fmt.print("> ")
+
+        buffer: [1024]byte
+        _, err := os.read(os.stdin, buffer[:])
+        if err != nil {
+            panic("[ERROR] Failed to read from stdin")
+        }
+        line := string(buffer[:])
+        if len(line) > 0 do VM_Interpret(this, settings, line)
+        else do break
+    }
+}
+
+VM_RunFile :: proc(this: ^VM, settings: InterpreterSettings, file: string) {
+    fmt.println("[DEBUG] Executing file", file)
+    source, ok := os.read_entire_file_from_filename(file, this.vmAllocator)
+    if !ok {
+        fmt.fprintln(os.stderr, "[ERROR] Failed to read source file", file)
+        os.exit(74)
+    }
+    result := VM_Interpret(this, settings, string(source))
+    switch result {
+    case .Ok: fmt.println("[DEBUG] Successfully executed file", file)
+    case .CompileError: os.exit(65)
+    case .RuntimeError: os.exit(70)
+    }
+}
+
+VM_TranspileFile :: proc(this: ^VM, settings: TranspilerSettings, file, outFile: string) {
+    fmt.println("[DEBUG] Transpiling file", file)
+    source, ok := os.read_entire_file_from_filename(file, this.vmAllocator)
+    if !ok {
+        fmt.fprintln(os.stderr, "[ERROR] Failed to read source file", file)
+        os.exit(74)
+    }
+    result := VM_Transpile(this, settings, string(source), outFile)
+    switch result {
+    case .Ok: fmt.println("[DEBUG] Successfully executed file", file)
+    case .TranspileError: fmt.println("[DEBUG] Failed to transpile file", file)
+    }
+}
+
+// *************** PRIVATE ***************
+
+@(private="file")
+CallFrame :: struct {
+    procedure: ^Procedure,
+    ip: int, // instruction pointer
+    slots: []Value,
+}
+
+@(private="file")
+VMInterpretResult :: enum {
+    Ok,
+    CompileError,
+    RuntimeError,
+}
+
+@(private="file")
+VMTranspileResult :: enum {
+    Ok,
+    TranspileError,
+}
+
+@(private="file")
 VM_StackPush :: proc(this: ^VM, value: Value) {
     append(&this.stack, value)
 }
 
+@(private="file")
 VM_StackPop :: proc(this: ^VM) -> Value {
     return pop(&this.stack)
 }
 
+@(private="file")
 VM_StackPeek :: proc(this: ^VM, distance: int) -> Value {
     return peek(&this.stack, distance)
 }
 
+@(private="file")
 VM_FramePush :: proc(this: ^VM, frame: CallFrame) {
     append(&this.frames, frame)
 }
 
+@(private="file")
 VM_FramePop :: proc(this: ^VM) -> CallFrame {
     return pop(&this.frames)
 }
 
+@(private="file")
 VM_FramePeek :: proc(this: ^VM) -> ^CallFrame {
     return &this.frames[len(this.frames) - 1]
 }
 
+@(private="file")
 VM_Call :: proc(this: ^VM, procedure: ^Procedure, argCount: int) -> bool {
     if argCount != procedure.arity {
         VM_RuntimeError(this, "Expected %d arguments but got %d", procedure.arity, argCount)
@@ -120,6 +151,7 @@ VM_Call :: proc(this: ^VM, procedure: ^Procedure, argCount: int) -> bool {
     return true
 }
 
+@(private="file")
 VM_CallValue :: proc(this: ^VM, calee: Value, argCount: int) -> bool {
     #partial switch calee.type {
     case .Procedure: return VM_Call(this, Value_AsProcedure(calee), argCount)
@@ -137,6 +169,7 @@ VM_CallValue :: proc(this: ^VM, calee: Value, argCount: int) -> bool {
     return false
 }
 
+@(private="file")
 VM_Run :: proc(this: ^VM) -> VMInterpretResult {
     ReadByte :: proc(this: ^CallFrame) -> u8 {
         defer this.ip += 1
@@ -295,7 +328,12 @@ VM_Run :: proc(this: ^VM) -> VMInterpretResult {
     return .Ok
 }
 
-VM_Interpret :: proc(this: ^VM, source: string) -> VMInterpretResult {
+@(private="file")
+VM_Interpret :: proc(this: ^VM, settings: InterpreterSettings, source: string) -> VMInterpretResult {
+    for binding in settings.bindings {
+        VM_DefineNative(this, binding.name, binding.nativeProc)
+    }
+
     parser: Parser
     Parser_Init(&parser)
     defer Parser_Free(&parser)
@@ -312,60 +350,18 @@ VM_Interpret :: proc(this: ^VM, source: string) -> VMInterpretResult {
     return VM_Run(this)
 }
 
-VM_Transpile :: proc(this: ^VM, settings: TranspilerSettings, source: string) -> VMTranspileResult {
+@(private="file")
+VM_Transpile :: proc(this: ^VM, settings: TranspilerSettings, source, outFile: string) -> VMTranspileResult {
     transpiler: Transpiler
     Transpiler_Init(&transpiler, settings)
     defer Transpiler_Free(&transpiler)
 
-    Transpiler_Transpiler(&transpiler, source)
+    Transpiler_Transpiler(&transpiler, source, outFile)
 
     return .Ok
 }
 
-VM_REPL :: proc(this: ^VM) {
-    for {
-        fmt.print("> ")
-
-        buffer: [1024]byte
-        _, err := os.read(os.stdin, buffer[:])
-        if err != nil {
-            panic("[ERROR] Failed to read from stdin")
-        }
-        line := string(buffer[:])
-        if len(line) > 0 do VM_Interpret(this, line)
-        else do break
-    }
-}
-
-VM_RunFile :: proc(this: ^VM, file: string) {
-    fmt.println("[DEBUG] Executing file", file)
-    source, ok := os.read_entire_file_from_filename(file, this.vmAllocator)
-    if !ok {
-        fmt.fprintln(os.stderr, "[ERROR] Failed to read source file", file)
-        os.exit(74)
-    }
-    result := VM_Interpret(this, string(source))
-    switch result {
-    case .Ok: fmt.println("[DEBUG] Successfully executed file", file)
-    case .CompileError: os.exit(65)
-    case .RuntimeError: os.exit(70)
-    }
-}
-
-VM_TranspileFile :: proc(this: ^VM, settings: TranspilerSettings, file: string) {
-    fmt.println("[DEBUG] Transpiling file", file)
-    source, ok := os.read_entire_file_from_filename(file, this.vmAllocator)
-    if !ok {
-        fmt.fprintln(os.stderr, "[ERROR] Failed to read source file", file)
-        os.exit(74)
-    }
-    result := VM_Transpile(this, settings, string(source))
-    switch result {
-    case .Ok: fmt.println("[DEBUG] Successfully executed file", file)
-    case .TranspileError: fmt.println("[DEBUG] Failed to transpile file", file)
-    }
-}
-
+@(private="file")
 VM_RuntimeError :: proc(this: ^VM, format: string, vargs: ..any) {
     fmt.fprintfln(os.stderr, format, ..vargs)
 
@@ -380,6 +376,7 @@ VM_RuntimeError :: proc(this: ^VM, format: string, vargs: ..any) {
     fmt.fprintfln(os.stderr, "[line %d] in script", line)
 }
 
+@(private="file")
 VM_DefineNative :: proc(this: ^VM, name: string, procedure: NativeProcedure) {
     value := Value_NativeProcedure(procedure)
     this.globals[name] = value

@@ -1,23 +1,15 @@
+#+private
 package yupii
 
 import "core:strings"
 import "core:mem"
 import vmem "core:mem/virtual"
 import utf8 "core:unicode/utf8"
-import os "core:os"
+import "core:os"
 
 TranspileResult :: enum {
     Ok,
     TranspileError,
-}
-
-TranspilerSettings :: struct {
-    packageName: string,
-    importedPackages: []struct{
-        alias: string,
-        name: string,
-    },
-    bindingImplementations: []string,
 }
 
 Transpiler :: struct {
@@ -38,7 +30,7 @@ Transpiler_Free :: proc(this: ^Transpiler) {
     vmem.arena_destroy(&this.transpilerArena)
 }
 
-Transpiler_Transpiler :: proc(this: ^Transpiler, source: string) -> TranspileResult {
+Transpiler_Transpiler :: proc(this: ^Transpiler, source, outFile: string) -> TranspileResult {
     parser: Parser
     Parser_Init(&parser)
     defer Parser_Free(&parser)
@@ -52,7 +44,7 @@ Transpiler_Transpiler :: proc(this: ^Transpiler, source: string) -> TranspileRes
     transpiled_builder := strings.builder_make(this.transpilerAllocator)
 
     strings.write_string(&transpiled_builder, "package ")
-    strings.write_string(&transpiled_builder, this.settings.packageName)
+    strings.write_string(&transpiled_builder, len(this.settings.packageName) > 0 ? this.settings.packageName : "main")
     strings.write_rune(&transpiled_builder, '\n')
     strings.write_rune(&transpiled_builder, '\n')
 
@@ -120,6 +112,6 @@ Transpiler_Transpiler :: proc(this: ^Transpiler, source: string) -> TranspileRes
     }
 
     transpiled_string := strings.to_string(transpiled_builder)
-    os.write_entire_file("test.odin", transmute([]byte)(transpiled_string))
+    os.write_entire_file(outFile, transmute([]byte)(transpiled_string))
     return .Ok
 }

@@ -1,40 +1,5 @@
+#+private
 package yupii
-
-/******************************
- * BYTECODE SPECIFICATION
- *
- * Each instruction in the bytecode of the program
- * is represented by one byte (8 bits). There are two
- * types of bytes:
- *
- * - Operations: 0xxxxxxx
- * - Operands:   1xxxxxxx
- *
- * If an instructions has it's first bit equal to 0,
- * it'll be interpreted as an operation. If the first
- * bit is equal to 1, it'll be interpreted as an
- * operand. Once one operand is found, the VM will
- * keep looking ahead in the bytecode for as long as
- * there are operands in a row. Once the VM finds the
- * next operation byte, it'll aggregate all of the bytes
- * of the operands that it found along the way and execute
- * the previously found operation with the new operand.
- * For example, if the bytecode looks like this:
- *
- * 00000011 10000100 10011110 10101100 0010101
- *
- * The VM will interprete the first byte as an operation
- * (11 = 4 => DefineLocal operation). Since this operation
- * requires an operand, the following 3 bytes
- * will be interpreted as operands and their 7 bits after
- * the leading one will be concatenated from left to right
- * to get the value of the operand (000010000111100101100).
- * The DefineLocal operation will then be executed with the
- * value of the operand. Finally, the fifth byte will be
- * interpreted as an operation (10101 = 21 => Return operation)
- * and it'll be immediately executed since it doesn't require
- * any operands.
- *****************************/
 
 import "core:fmt"
 import "core:mem"

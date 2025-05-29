@@ -1,3 +1,4 @@
+#+private
 package yupii
 
 Procedure_Init :: proc(this: ^Procedure) {

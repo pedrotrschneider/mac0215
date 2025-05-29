@@ -1,6 +1,6 @@
 package keyword_rune_generator
 
-import os "core:os"
+import "core:os"
 import fmt "core:fmt"
 import utf8 "core:unicode/utf8"
 import strings "core:strings"
