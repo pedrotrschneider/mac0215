@@ -11,6 +11,9 @@ pong_file = src/scripts/pong.yp
 
 ##### RUN #####
 
+run_interactive: build
+	@./bin/main
+
 run_file: build
 	@./bin/main -i $(pong_file)
 
@@ -18,6 +21,10 @@ transpile_file: build
 	@./bin/main -t $(pong_file) pong.odin
 	@odin run pong.odin -file
 	@rm pong.odin pong
+
+to_dynamic: build
+	@./bin/main -t $(pong_file) pong.odin
+	@odin build pong.odin -file -build-mode:dll
 
 debug_file: build_debug
 	@./bin/main-debug $(pong_file)
