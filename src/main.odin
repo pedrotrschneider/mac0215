@@ -5,41 +5,6 @@ import "core:strings"
 import fmt "core:fmt"
 import "core:strconv"
 import os "core:os/os2"
-import "core:dynlib"
-
-RunProcessSync :: proc(command: []string) -> (err: os.Error) {
-    fmt.print("[DEBUG] Running command:")
-    for c in command do fmt.print("", c)
-    fmt.println()
-
-    r, w := os.pipe() or_return
-    defer os.close(r)
-    defer os.close(w)
-    p: os.Process
-    {
-        defer os.close(w)
-        p = os.process_start({
-            command = command,
-            stdout = w,
-        }) or_return
-    }
-    output := os.read_entire_file(r, context.temp_allocator) or_return
-    state := os.process_wait(p) or_return
-
-    if !state.exited {
-        fmt.println("[DEBUG] Process did not exit yet")
-        fmt.println(state)
-        err = os.General_Error.Invalid_Command
-    }
-
-    if !state.success {
-        fmt.println("[DEBUG] Process did not exit successfully")
-        fmt.println(string(output))
-        err = os.General_Error.Invalid_Command
-    }
-
-    return
-}
 
 main :: proc() {
     args := os.args
@@ -178,25 +143,7 @@ main :: proc() {
         switch mode {
         case 1: yupii.InterpretFile(interpreterSettings, fileName)
         case 2: {
-            yupii.TranspileFile(transpilerSettings, fileName, "/tmp/tmp.odin")
-            err := RunProcessSync({ "odin", "build", "/tmp/tmp.odin", "-file", "-build-mode:dll", "-out=/tmp/tmp.so" })
-            if err != os.ERROR_NONE {
-                fmt.println("Unable to run command")
-                panic("Aborting...")
-            }
-
-            wd, _ := os.get_working_directory(context.temp_allocator)
-            fmt.println(wd)
-
-            _, loaded := dynlib.load_library("/tmp/tmp.so")
-            if !loaded {
-                dlLoadError := dynlib.last_error()
-                fmt.println("Failed to load tmp.so dynamic library")
-                fmt.println(dlLoadError)
-                panic("Aborting...")
-            }
-
-            RunProcessSync({ "rm", "tmp.so" })
+            yupii.TranspileFileAndRun(transpilerSettings, fileName)
         }
         case: fmt.println("Invalid executing mode", mode)
         }

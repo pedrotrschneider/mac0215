@@ -356,7 +356,7 @@ VM_Transpile :: proc(this: ^VM, settings: TranspilerSettings, source, outFile: s
     Transpiler_Init(&transpiler, settings)
     defer Transpiler_Free(&transpiler)
 
-    Transpiler_Transpiler(&transpiler, source, outFile)
+    Transpiler_Transpile(&transpiler, source, outFile)
 
     return .Ok
 }

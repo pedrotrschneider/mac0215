@@ -30,7 +30,7 @@ Transpiler_Free :: proc(this: ^Transpiler) {
     vmem.arena_destroy(&this.transpilerArena)
 }
 
-Transpiler_Transpiler :: proc(this: ^Transpiler, source, outFile: string) -> TranspileResult {
+Transpiler_Transpile :: proc(this: ^Transpiler, source, outFile: string) -> TranspileResult {
     parser: Parser
     Parser_Init(&parser)
     defer Parser_Free(&parser)

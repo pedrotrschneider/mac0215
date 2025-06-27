@@ -1,7 +1,9 @@
 package yupii
 
-import "core:os"
+import os "core:os/os2"
 import "core:strings"
+import "core:fmt"
+import "core:dynlib"
 
 InterpreterSettings :: struct {
     bindings: []struct{
@@ -17,6 +19,23 @@ TranspilerSettings :: struct {
         name: string,
     },
     bindingImplementations: []string,
+}
+
+TranspileFileAndRun :: proc(settings: TranspilerSettings, file: string) {
+    TranspileFile(settings, file, "/tmp/tmp.odin")
+    err := RunProcessSync({ "odin", "build", "/tmp/tmp.odin", "-file", "-build-mode:dll", "-out=/tmp/tmp.so" })
+    if err != os.ERROR_NONE {
+        fmt.println("Unable to run command")
+        panic("Aborting...")
+    }
+
+    _, loaded := dynlib.load_library("/tmp/tmp.so")
+    if !loaded {
+        dlLoadError := dynlib.last_error()
+        fmt.println("Failed to load tmp.so dynamic library")
+        fmt.println(dlLoadError)
+        panic("Aborting...")
+    }
 }
 
 InterpretFile :: proc(settings: InterpreterSettings, file: string) {
